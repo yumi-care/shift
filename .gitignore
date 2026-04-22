@@ -1,0 +1,13 @@
+node_modules/
+.DS_Store
+*.log
+backend/data/
+backend/test_*.js
+frontend/test_*.mjs
+frontend/test_*.js
+test_*.mjs
+test_*.js
+.env
+.env.local
+dist/
+build/

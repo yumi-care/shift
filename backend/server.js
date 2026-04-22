@@ -1,43 +1,120 @@
 const express = require('express');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
+const fs = require('fs');
+const path = require('path');
 const app = express();
 
 app.use(cors());
 app.use(express.json());
 
 const JWT_SECRET = 'test-secret-key-shift-saas';
+const DB_PATH = path.join(__dirname, 'data', 'db.json');
 
-// インメモリデータベース
-const db = {
-  corporations: [
-    { corp_id: 1, corp_name: 'ゆうみ株式会社' }
-  ],
-  facilities: {
-    1: [
-      { facility_id: 1, corp_id: 1, facility_name: 'ゆうみのいえ' }
-    ]
-  },
-  locations: {
-    1: [
-      { location_id: 1, facility_id: 1, location_name: '三本木' },
-      { location_id: 2, facility_id: 1, location_name: '江島' },
-      { location_id: 3, facility_id: 1, location_name: '牛川' }
-    ]
-  },
-  staffs: {
-    1: []
-  },
-  submissions: {
-    1: []
+// JSON ファイルから DB を読み込む
+function loadDB() {
+  try {
+    const data = fs.readFileSync(DB_PATH, 'utf-8');
+    return JSON.parse(data);
+  } catch (err) {
+    console.warn('DB ファイルが見つかりません。デフォルト DB を使用します。');
+    return getDefaultDB();
   }
-};
+}
 
-let nextCorpId = 2;
-let nextFacilityId = 2;
-let nextLocationId = 4;
-let nextStaffId = 1;
-let nextSubmissionId = 1;
+// DB をファイルに保存
+function saveDB(database) {
+  try {
+    const dir = path.dirname(DB_PATH);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(DB_PATH, JSON.stringify(database, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('DB 保存エラー:', err);
+  }
+}
+
+// デフォルト DB
+function getDefaultDB() {
+  return {
+    corporations: [
+      { corp_id: 1, corp_name: 'ゆうみ株式会社' }
+    ],
+    facilities: {
+      1: [
+        { facility_id: 1, corp_id: 1, facility_name: 'ゆうみのいえ' }
+      ]
+    },
+    locations: {
+      1: [
+        { location_id: 1, facility_id: 1, location_name: '三本木' },
+        { location_id: 2, facility_id: 1, location_name: '江島' },
+        { location_id: 3, facility_id: 1, location_name: '牛川' }
+      ]
+    },
+    staffs: {
+      1: []
+    },
+    submissions: {
+      1: []
+    },
+    shifts: {
+      1: []
+    }
+  };
+}
+
+// DB を読み込み
+let db = loadDB();
+
+// nextId を復元または初期化
+function initializeCounters() {
+  let nextCorpId = 2;
+  let nextFacilityId = 2;
+  let nextLocationId = 4;
+  let nextStaffId = 1;
+  let nextSubmissionId = 1;
+
+  // 最大 ID を検出
+  if (db.corporations.length > 0) {
+    nextCorpId = Math.max(...db.corporations.map(c => c.corp_id)) + 1;
+  }
+
+  Object.values(db.facilities).forEach(facilities => {
+    if (facilities.length > 0) {
+      nextFacilityId = Math.max(nextFacilityId, Math.max(...facilities.map(f => f.facility_id)) + 1);
+    }
+  });
+
+  Object.values(db.locations).forEach(locations => {
+    if (locations.length > 0) {
+      nextLocationId = Math.max(nextLocationId, Math.max(...locations.map(l => l.location_id)) + 1);
+    }
+  });
+
+  Object.values(db.staffs).forEach(staffs => {
+    if (staffs.length > 0) {
+      nextStaffId = Math.max(nextStaffId, Math.max(...staffs.map(s => s.staff_id)) + 1);
+    }
+  });
+
+  Object.values(db.submissions).forEach(submissions => {
+    if (submissions.length > 0) {
+      nextSubmissionId = Math.max(nextSubmissionId, Math.max(...submissions.map(s => s.submission_id)) + 1);
+    }
+  });
+
+  return { nextCorpId, nextFacilityId, nextLocationId, nextStaffId, nextSubmissionId };
+}
+
+const { nextCorpId: initCorpId, nextFacilityId: initFacilityId, nextLocationId: initLocationId, nextStaffId: initStaffId, nextSubmissionId: initSubmissionId } = initializeCounters();
+
+let nextCorpId = initCorpId;
+let nextFacilityId = initFacilityId;
+let nextLocationId = initLocationId;
+let nextStaffId = initStaffId;
+let nextSubmissionId = initSubmissionId;
 
 // ========== ユーティリティ関数 ==========
 function verifyToken(req, res, next) {
@@ -104,6 +181,7 @@ app.post('/api/phase1/corporations/', (req, res) => {
   db.corporations.push(corp);
   db.facilities[corp.corp_id] = [];
   db.locations[corp.corp_id] = {};
+  saveDB(db);
   res.status(201).json(corp);
 });
 
@@ -112,6 +190,7 @@ app.delete('/api/phase1/corporations/:corpId', (req, res) => {
   db.corporations = db.corporations.filter(c => c.corp_id !== corpId);
   delete db.facilities[corpId];
   delete db.locations[corpId];
+  saveDB(db);
   res.json({ message: 'Deleted' });
 });
 
@@ -135,6 +214,7 @@ app.post('/api/phase1/corporations/:corpId/facilities/', (req, res) => {
   }
   db.facilities[corpId].push(facility);
   db.locations[facility.facility_id] = [];
+  saveDB(db);
   res.status(201).json(facility);
 });
 
@@ -145,6 +225,7 @@ app.delete('/api/phase1/facilities/:facilityId', (req, res) => {
     db.facilities[corpId] = db.facilities[corpId].filter(f => f.facility_id !== facilityId);
   }
   delete db.locations[facilityId];
+  saveDB(db);
   res.json({ message: 'Deleted' });
 });
 
@@ -166,6 +247,7 @@ app.post('/api/phase1/facilities/:facilityId/locations/', (req, res) => {
     db.locations[facilityId] = [];
   }
   db.locations[facilityId].push(location);
+  saveDB(db);
   res.status(201).json(location);
 });
 
@@ -175,6 +257,7 @@ app.delete('/api/phase1/locations/:locationId', (req, res) => {
   Object.keys(db.locations).forEach(facilityId => {
     db.locations[facilityId] = db.locations[facilityId].filter(l => l.location_id !== locationId);
   });
+  saveDB(db);
   res.json({ message: 'Deleted' });
 });
 
@@ -213,6 +296,7 @@ app.post('/api/phase2/facilities/:facilityId/staffs', (req, res) => {
     db.staffs[facilityId] = [];
   }
   db.staffs[facilityId].push(staff);
+  saveDB(db);
   res.status(201).json(staff);
 });
 
@@ -228,6 +312,7 @@ app.put('/api/phase2/staffs/:staffId', (req, res) => {
       staff.work_days = work_days !== undefined ? work_days : staff.work_days;
       staff.break_start = break_start !== undefined ? break_start : (staff.break_start || '');
       staff.break_end = break_end !== undefined ? break_end : (staff.break_end || '');
+      saveDB(db);
       return res.json(staff);
     }
   }
@@ -240,6 +325,7 @@ app.delete('/api/phase2/staffs/:staffId', (req, res) => {
     const staff = db.staffs[facilityId].find(s => s.staff_id === staffId);
     if (staff) {
       db.staffs[facilityId] = db.staffs[facilityId].filter(s => s.staff_id !== staffId);
+      saveDB(db);
       return res.json({ message: 'Staff deleted' });
     }
   }
@@ -275,6 +361,7 @@ app.post('/api/phase3/shift-submissions/auto', (req, res) => {
     db.submissions[facility_id] = [];
   }
   db.submissions[facility_id].push(...submissions);
+  saveDB(db);
 
   res.status(201).json({
     message: 'Auto-submission created',
@@ -317,6 +404,7 @@ app.post('/api/phase3/shift-submissions/manual', (req, res) => {
     db.submissions[facility_id] = [];
   }
   db.submissions[facility_id].push(...submissions);
+  saveDB(db);
 
   res.status(201).json({
     message: 'Manual submission created',
@@ -364,8 +452,11 @@ app.get('/api/dashboard/summary', (req, res) => {
 
     // 日付ごとの拠点情報を保持
     const submissionDetails = staffSubmissions.map(s => ({
+      submission_id: s.submission_id,
       date: s.date,
-      location_name: s.location_name || ''
+      location_id: s.location_id,
+      location_name: s.location_name || '',
+      type: s.type
     }));
     const submissionDates = staffSubmissions.map(s => s.date);
 
@@ -412,6 +503,200 @@ app.get('/api/dashboard/summary', (req, res) => {
     year: yearInt,
     month: monthInt,
     staffs: summary
+  });
+});
+
+// ========== ダッシュボード：申告追加 ==========
+app.post('/api/dashboard/submissions/add', (req, res) => {
+  const { facility_id, staff_id, date, location_id } = req.body;
+
+  if (!facility_id || !staff_id || !date || !location_id) {
+    return res.status(400).json({ error: 'facility_id, staff_id, date, location_id are required' });
+  }
+
+  const facilityId = parseInt(facility_id);
+  const staff = db.staffs[facilityId]?.find(s => s.staff_id === staff_id);
+  if (!staff) {
+    return res.status(404).json({ error: 'Staff not found' });
+  }
+
+  const location = db.locations[facilityId]?.find(l => l.location_id === parseInt(location_id));
+  const locationName = location?.location_name || '';
+
+  const newSubmission = {
+    submission_id: nextSubmissionId++,
+    staff_id,
+    facility_id: facilityId,
+    date,
+    location_id: parseInt(location_id),
+    location_name: locationName,
+    submitted_at: new Date().toISOString(),
+    type: 'manual'
+  };
+
+  if (!db.submissions[facilityId]) {
+    db.submissions[facilityId] = [];
+  }
+
+  // 重複チェック1: 同じスタッフが同じ日に既に申告しているか（別棟含む）
+  const sameStaffSameDay = db.submissions[facilityId].find(
+    s => s.staff_id === staff_id && s.date === date
+  );
+  if (sameStaffSameDay) {
+    return res.status(400).json({ error: '同じ日に申告済みです。複数の棟での勤務は出来ません。' });
+  }
+
+  // 重複チェック2: 同じ日の同じ場所に既に申告しているか
+  const sameDateSameLocation = db.submissions[facilityId].find(
+    s => s.date === date && s.location_id === parseInt(location_id) && s.staff_id === staff_id
+  );
+  if (sameDateSameLocation) {
+    return res.status(400).json({ error: 'この日時の申告は既に存在します。' });
+  }
+
+  db.submissions[facilityId].push(newSubmission);
+  saveDB(db);
+
+  res.status(201).json({
+    message: 'Submission added',
+    submission: newSubmission
+  });
+});
+
+// ========== ダッシュボード：申告削除 ==========
+app.delete('/api/dashboard/submissions/:submissionId', (req, res) => {
+  const submissionId = parseInt(req.params.submissionId);
+
+  for (const facilityId in db.submissions) {
+    const index = db.submissions[facilityId].findIndex(s => s.submission_id === submissionId);
+    if (index !== -1) {
+      const deleted = db.submissions[facilityId].splice(index, 1)[0];
+      saveDB(db);
+      return res.json({ message: 'Submission deleted', deleted });
+    }
+  }
+
+  res.status(404).json({ error: 'Submission not found' });
+});
+
+// ========== ダッシュボード：申告更新 ==========
+app.put('/api/dashboard/submissions/:submissionId', (req, res) => {
+  const submissionId = parseInt(req.params.submissionId);
+  const { date, location_id } = req.body;
+
+  for (const facilityId in db.submissions) {
+    const submission = db.submissions[facilityId].find(s => s.submission_id === submissionId);
+    if (submission) {
+      const newDate = date || submission.date;
+      const newLocationId = location_id !== undefined ? location_id : submission.location_id;
+
+      // 重複チェック1: 同じスタッフが同じ日に既に申告しているか（別棟含む、自分以外）
+      const sameStaffSameDay = db.submissions[facilityId].find(
+        s => s.staff_id === submission.staff_id && s.date === newDate && s.submission_id !== submissionId
+      );
+      if (sameStaffSameDay) {
+        return res.status(400).json({ error: '同じ日に他の申告がある為、修正出来ません。複数の棟での勤務は出来ません。' });
+      }
+
+      // 重複チェック2: 同じ日の同じ場所に既に申告しているか（自分以外）
+      const sameDateSameLocation = db.submissions[facilityId].find(
+        s => s.date === newDate && s.location_id === newLocationId && s.submission_id !== submissionId && s.staff_id === submission.staff_id
+      );
+      if (sameDateSameLocation) {
+        return res.status(400).json({ error: 'この日時の申告は既に存在します。' });
+      }
+
+      if (date) {
+        submission.date = date;
+      }
+      if (location_id !== undefined) {
+        const location = db.locations[facilityId]?.find(l => l.location_id === location_id);
+        submission.location_id = location_id;
+        submission.location_name = location?.location_name || '';
+      }
+      submission.updated_at = new Date().toISOString();
+      saveDB(db);
+      return res.json({ message: 'Submission updated', submission });
+    }
+  }
+
+  res.status(404).json({ error: 'Submission not found' });
+});
+
+// ========== Phase 4：シフト取得 ==========
+app.get('/api/phase4/shifts/get', (req, res) => {
+  const { facility_id, year, month } = req.query;
+  const facilityId = parseInt(facility_id);
+  const shiftKey = `${year}-${String(month).padStart(2, '0')}`;
+
+  console.log(`[GET /api/phase4/shifts/get] ${shiftKey} のシフトを取得`);
+
+  const shifts = db.shifts?.[facilityId] || [];
+  const shift = shifts.find(s => s.key === shiftKey);
+
+  if (shift) {
+    res.json({
+      message: 'Shift found',
+      facility_id: facilityId,
+      year: year,
+      month: month,
+      edits: shift.edits,
+      saved_at: shift.saved_at
+    });
+  } else {
+    res.status(404).json({
+      message: 'No saved shift',
+      facility_id: facilityId,
+      year: year,
+      month: month
+    });
+  }
+});
+
+// ========== Phase 4：シフト保存 ==========
+app.post('/api/phase4/shifts/save', (req, res) => {
+  console.log('[POST /api/phase4/shifts/save] リクエスト受信:', req.body);
+  const { facility_id, year, month, edits } = req.body;
+
+  if (!facility_id || !year || !month || !edits) {
+    console.log('[POST /api/phase4/shifts/save] バリデーションエラー');
+    return res.status(400).json({ error: 'facility_id, year, month, edits are required' });
+  }
+
+  // shifts テーブルを初期化
+  if (!db.shifts) {
+    db.shifts = {};
+  }
+  if (!db.shifts[facility_id]) {
+    db.shifts[facility_id] = [];
+  }
+
+  const shiftKey = `${year}-${String(month).padStart(2, '0')}`;
+  const existingIndex = db.shifts[facility_id].findIndex(s => s.key === shiftKey);
+
+  const shiftData = {
+    key: shiftKey,
+    facility_id: facility_id,
+    year: year,
+    month: month,
+    edits: edits,
+    saved_at: new Date().toISOString()
+  };
+
+  if (existingIndex !== -1) {
+    db.shifts[facility_id][existingIndex] = shiftData;
+  } else {
+    db.shifts[facility_id].push(shiftData);
+  }
+
+  saveDB(db);
+
+  res.status(200).json({
+    message: 'Shift saved successfully',
+    facility_id: facility_id,
+    year: year,
+    month: month,
+    edits_count: Object.keys(edits).length
   });
 });
 

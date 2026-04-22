@@ -23,6 +23,7 @@ export default function Phase4() {
   const [shiftTable, setShiftTable] = useState(null);
   const [staffSummaryEdits, setStaffSummaryEdits] = useState({});
   const [shiftEdits, setShiftEdits] = useState({});
+  const [editingKey, setEditingKey] = useState(null);
 
   useEffect(() => {
     const fetchCorporations = async () => {
@@ -60,33 +61,130 @@ export default function Phase4() {
 
   useEffect(() => {
     if (selectedFacility) {
-      const fetchData = async () => {
+      const fetchLocations = async () => {
         try {
           const locationResponse = await axios.get(
             `${API_BASE_URL}/phase1/facilities/${selectedFacility}/locations/`
           );
           setLocations(locationResponse.data);
-
-          const dashboardResponse = await axios.get(
-            `${API_BASE_URL}/dashboard/summary`,
-            {
-              params: {
-                facility_id: selectedFacility,
-                year: selectedYear,
-                month: selectedMonth
-              }
-            }
-          );
-
-          generateShiftTable(dashboardResponse.data.staffs || [], selectedYear, parseInt(selectedMonth));
+          setShiftTable(null);
+          setShiftEdits({});
         } catch (error) {
-          console.error('データ取得エラー:', error);
+          console.error('拠点取得エラー:', error);
         }
       };
 
-      fetchData();
+      fetchLocations();
+    }
+  }, [selectedFacility]);
+
+  useEffect(() => {
+    if (selectedFacility && selectedYear && selectedMonth) {
+      const loadSavedShift = async () => {
+        try {
+          // 保存済みシフトを確認
+          const shiftResponse = await axios.get(`${API_BASE_URL}/phase4/shifts/get`, {
+            params: {
+              facility_id: selectedFacility,
+              year: selectedYear,
+              month: selectedMonth
+            }
+          });
+
+          // 保存済みシフトが見つかった場合、シフト表を生成して表示
+          if (shiftResponse.data.edits) {
+            const dashboardResponse = await axios.get(
+              `${API_BASE_URL}/dashboard/summary`,
+              {
+                params: {
+                  facility_id: selectedFacility,
+                  year: selectedYear,
+                  month: selectedMonth
+                }
+              }
+            );
+
+            generateShiftTable(dashboardResponse.data.staffs || [], selectedYear, parseInt(selectedMonth));
+            setShiftEdits(shiftResponse.data.edits);
+          }
+        } catch (error) {
+          // 保存済みシフトがない場合は何もしない
+          if (error.response?.status !== 404) {
+            console.error('保存済みシフト取得エラー:', error);
+          }
+        }
+      };
+
+      loadSavedShift();
     }
   }, [selectedFacility, selectedYear, selectedMonth]);
+
+  const handleCreateShift = async () => {
+    if (!selectedFacility || !selectedYear || !selectedMonth) {
+      alert('法人、事業所、年月を選択してください');
+      return;
+    }
+
+    try {
+      const dashboardResponse = await axios.get(
+        `${API_BASE_URL}/dashboard/summary`,
+        {
+          params: {
+            facility_id: selectedFacility,
+            year: selectedYear,
+            month: selectedMonth
+          }
+        }
+      );
+
+      generateShiftTable(dashboardResponse.data.staffs || [], selectedYear, parseInt(selectedMonth));
+      setShiftEdits({});
+    } catch (error) {
+      console.error('シフト作成エラー:', error);
+      alert('シフト作成に失敗しました');
+    }
+  };
+
+  const handleSaveShift = async () => {
+    if (!selectedFacility || Object.keys(shiftEdits).length === 0) {
+      alert('修正内容がありません');
+      return;
+    }
+
+    try {
+      await axios.post(`${API_BASE_URL}/phase4/shifts/save`, {
+        facility_id: selectedFacility,
+        year: selectedYear,
+        month: selectedMonth,
+        edits: shiftEdits
+      });
+
+      // 保存後、編集値をシフト表に反映させる
+      const updatedShiftTable = { ...shiftTable };
+      Object.entries(shiftEdits).forEach(([editKey, value]) => {
+        const parsedValue = parseFloat(value) || 0;
+        // dayStartMap の値を更新（実際のシフト表データを変更）
+        Object.entries(updatedShiftTable.dayStartMap || {}).forEach(([date, dayData]) => {
+          Object.entries(dayData).forEach(([key, data]) => {
+            if (editKey.includes(date) && editKey.includes(key)) {
+              if (editKey.startsWith('day_')) {
+                data.dayShift = parsedValue;
+              } else if (editKey.startsWith('night_')) {
+                data.nightShift = parsedValue;
+              }
+            }
+          });
+        });
+      });
+
+      setShiftTable(updatedShiftTable);
+      alert('シフトを保存しました');
+      // shiftEdits は保持してクリアしない（編集データは保持）
+    } catch (error) {
+      console.error('シフト保存エラー:', error);
+      alert('シフト保存に失敗しました');
+    }
+  };
 
   // 曜日マップ
   const dayMap = { '月': 1, '火': 2, '水': 3, '木': 4, '金': 5, '土': 6, '日': 0 };
@@ -136,13 +234,14 @@ export default function Phase4() {
     const daysInMonth = new Date(year, month, 0).getDate();
     const dayStartMap = {}; // { 'YYYY-MM-DD': { staffId_location: { dayShift: 0, nightShift: 0, staff_id, location } } }
     const staffLocationMap = {}; // { staffId_location: { staff_id, staff_name, location } }
+    const duplicateErrors = []; // 重複勤務エラーを記録
 
     dashboardStaffs.forEach(staff => {
       // Phase 2の登録情報から勤務時間を計算
       const workHours = calculateWorkHours(staff.positions, staff.break_start, staff.break_end);
+      // 職種で夜勤判定：「夜間世話人」が夜勤、その他は日勤
       const isNightShift = staff.positions && staff.positions.some(p => {
-        const startHour = parseInt((p.work_hours_start || '06').split(':')[0]);
-        return startHour >= 22;
+        return p.position === '夜間世話人';
       });
 
       // パターン1：固定勤務（work_days がある）
@@ -165,7 +264,12 @@ export default function Phase4() {
             }
 
             if (!staffLocationMap[staffLocationKey]) {
-              staffLocationMap[staffLocationKey] = { staff_id: staff.staff_id, staff_name: staff.staff_name, location: '-' };
+              staffLocationMap[staffLocationKey] = {
+                staff_id: staff.staff_id,
+                staff_name: staff.staff_name,
+                location: '-',
+                positions: staff.positions || []
+              };
             }
 
             if (isNightShift) {
@@ -193,7 +297,12 @@ export default function Phase4() {
           }
 
           if (!staffLocationMap[staffLocationKey]) {
-            staffLocationMap[staffLocationKey] = { staff_id: staff.staff_id, staff_name: staff.staff_name, location: locationName };
+            staffLocationMap[staffLocationKey] = {
+              staff_id: staff.staff_id,
+              staff_name: staff.staff_name,
+              location: locationName,
+              positions: staff.positions || []
+            };
           }
 
           // 複数職種を個別に処理
@@ -389,6 +498,24 @@ export default function Phase4() {
                       })}
                     </select>
                   </div>
+
+                  <div className="selector-group" style={{ flex: 0 }}>
+                    <button
+                      onClick={handleCreateShift}
+                      style={{
+                        padding: '10px 20px',
+                        backgroundColor: '#0066cc',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        fontWeight: 'bold',
+                        marginTop: '24px'
+                      }}
+                    >
+                      シフト作成
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -405,97 +532,107 @@ export default function Phase4() {
                   <table className="shift-table">
                     <thead>
                       <tr>
-                        <th>氏名</th>
+                        <th style={{ minWidth: '80px' }}>氏名</th>
                         {Array.from({ length: shiftTable.daysInMonth }, (_, i) => {
                           const day = i + 1;
                           const date = new Date(shiftTable.year, shiftTable.month - 1, day);
                           const dayOfWeek = dayLabels[date.getDay()];
                           return (
-                            <th key={day}>{day}日（{dayOfWeek}）</th>
+                            <th key={day} style={{ minWidth: '60px' }}>{day}日（{dayOfWeek}）</th>
                           );
                         })}
                         <th>合計</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {Array.from(
-                        new Set(
-                          Object.entries(shiftTable.dayStartMap || {})
-                            .flatMap(([date, dayData]) =>
-                              Object.entries(dayData)
-                                .filter(([key, data]) => data.dayShift > 0)
-                                .map(([key]) => key.split('_')[0])
-                            )
-                        )
-                      ).sort().map((staffId) => {
-                        const staffKey = Object.keys(shiftTable.staffLocationMap || {})
-                          .find(key => key.startsWith(`${staffId}_`));
-                        const staff = staffKey ? shiftTable.staffLocationMap[staffKey] : null;
+                      {(() => {
+                        // 日勤データがあるスタッフを取得（スタッフIDベースでユニーク）
+                        const dayShiftStaffIds = Array.from(
+                          new Set(
+                            Object.entries(shiftTable.dayStartMap || {})
+                              .flatMap(([date, dayData]) =>
+                                Object.entries(dayData)
+                                  .filter(([key, data]) => data.dayShift > 0)
+                                  .map(([key]) => key.split('_')[0])
+                              )
+                          )
+                        ).sort((a, b) => a - b);
 
-                        return staff ? (
-                          <tr key={`day-${staffId}`}>
-                            <td style={{ fontWeight: '600' }}>{staff.staff_name}</td>
-                            {Array.from({ length: shiftTable.daysInMonth }, (_, i) => {
-                              const day = i + 1;
-                              const shiftDate = new Date(shiftTable.year, shiftTable.month - 1, day, 17, 0, 0);
-                              const shiftDateStr = shiftDate.toISOString().split('T')[0];
-                              const editKey = `day_${staffId}_${shiftDateStr}`;
+                        return dayShiftStaffIds.map((staffId) => {
+                          const numericStaffId = parseInt(staffId);
+                          const staffLocationKey = Object.keys(shiftTable.staffLocationMap || {}).find(key => {
+                            const mapStaff = shiftTable.staffLocationMap[key];
+                            return mapStaff && mapStaff.staff_id === numericStaffId;
+                          });
+                          const staff = staffLocationKey ? shiftTable.staffLocationMap[staffLocationKey] : null;
+                          if (!staff) return null;
 
-                              let totalDayShift = 0;
-                              Object.entries(shiftTable.dayStartMap[shiftDateStr] || {}).forEach(([key, data]) => {
-                                if (key.startsWith(`${staffId}_`)) {
-                                  totalDayShift += data.dayShift;
-                                }
-                              });
+                          return (
+                            <tr key={staffLocationKey}>
+                              <td style={{ fontWeight: '600' }}>{staff.staff_name}</td>
+                              {Array.from({ length: shiftTable.daysInMonth }, (_, i) => {
+                                const day = i + 1;
+                                const shiftDate = new Date(shiftTable.year, shiftTable.month - 1, day, 17, 0, 0);
+                                const shiftDateStr = shiftDate.toISOString().split('T')[0];
 
-                              const displayValue = shiftEdits[editKey] !== undefined ? shiftEdits[editKey] : totalDayShift;
+                                let dayShiftTotal = 0;
+                                Object.entries(shiftTable.dayStartMap[shiftDateStr] || {}).forEach(([key, data]) => {
+                                  if (key.startsWith(`${staff.staff_id}_`)) {
+                                    dayShiftTotal += data.dayShift;
+                                  }
+                                });
 
-                              return (
-                                <td
-                                  key={day}
-                                  style={{ textAlign: 'center', color: displayValue > 0 ? '#333' : '#ccc', fontWeight: displayValue > 0 ? '600' : 'normal', padding: '10px 8px', cursor: 'pointer' }}
-                                  onDoubleClick={() => setShiftEdits(prev => ({ ...prev, [editKey]: displayValue === '' ? '' : displayValue }))}
-                                >
-                                  {shiftEdits[editKey] !== undefined ? (
-                                    <input
-                                      type="number"
-                                      step="0.5"
-                                      value={displayValue}
-                                      onChange={(e) => setShiftEdits(prev => ({ ...prev, [editKey]: e.target.value }))}
-                                      onBlur={() => setShiftEdits(prev => { const newEdits = { ...prev }; delete newEdits[editKey]; return newEdits; })}
-                                      onKeyDown={(e) => {
-                                        if (e.key === 'Enter') {
-                                          setShiftEdits(prev => { const newEdits = { ...prev }; delete newEdits[editKey]; return newEdits; });
-                                        }
-                                      }}
-                                      autoFocus
-                                      style={{ width: '35px', textAlign: 'center', border: '1px solid #0066cc', padding: '2px' }}
-                                    />
-                                  ) : (
-                                    displayValue > 0 ? displayValue : ''
-                                  )}
-                                </td>
-                              );
-                            })}
-                            <td style={{ textAlign: 'center', fontWeight: '600', color: '#333', backgroundColor: '#f9f9f9' }}>
-                              {(() => {
-                                let sum = 0;
-                                for (let day = 1; day <= 28; day++) {
-                                  const shiftDate = new Date(shiftTable.year, shiftTable.month - 1, day, 17, 0, 0);
-                                  const shiftDateStr = shiftDate.toISOString().split('T')[0];
-                                  const editKey = `day_${staffId}_${shiftDateStr}`;
-                                  const value = shiftEdits[editKey] !== undefined ? parseFloat(shiftEdits[editKey]) || 0 : 0;
-                                  const dayData = shiftTable.dayStartMap[shiftDateStr] ? Object.entries(shiftTable.dayStartMap[shiftDateStr])
-                                    .filter(([key]) => key.startsWith(`${staffId}_`))
-                                    .reduce((acc, [, data]) => acc + data.dayShift, 0) : 0;
-                                  sum += value > 0 ? value : dayData;
-                                }
-                                return sum > 0 ? sum : '';
-                              })()}
-                            </td>
-                          </tr>
-                        ) : null;
-                      })}
+                                const editKey = `day_${staffLocationKey}_${shiftDateStr}`;
+                                const displayValue = shiftEdits[editKey] !== undefined ? shiftEdits[editKey] : dayShiftTotal;
+                                const isEditing = editingKey === editKey;
+
+                                return (
+                                  <td
+                                    key={day}
+                                    style={{ textAlign: 'center', color: displayValue > 0 ? '#333' : '#ccc', fontWeight: displayValue > 0 ? '600' : 'normal', padding: '10px 8px', cursor: 'pointer' }}
+                                    onClick={() => setEditingKey(editKey)}
+                                  >
+                                    {isEditing ? (
+                                      <input
+                                        type="number"
+                                        step="0.5"
+                                        value={displayValue}
+                                        onChange={(e) => setShiftEdits(prev => ({ ...prev, [editKey]: e.target.value }))}
+                                        onBlur={() => setEditingKey(null)}
+                                        autoFocus
+                                        style={{ width: '50px', textAlign: 'center', border: '1px solid #0066cc', padding: '4px' }}
+                                      />
+                                    ) : (
+                                      displayValue > 0 ? displayValue : ''
+                                    )}
+                                  </td>
+                                );
+                              })}
+                              <td style={{ textAlign: 'center', fontWeight: '600', color: '#333', backgroundColor: '#f9f9f9' }}>
+                                {(() => {
+                                  let sum = 0;
+                                  for (let day = 1; day <= 28; day++) {
+                                    const shiftDate = new Date(shiftTable.year, shiftTable.month - 1, day, 17, 0, 0);
+                                    const shiftDateStr = shiftDate.toISOString().split('T')[0];
+                                    const editKey = `day_${staffLocationKey}_${shiftDateStr}`;
+                                    const value = shiftEdits[editKey] !== undefined ? parseFloat(shiftEdits[editKey]) || 0 : 0;
+
+                                    let dayShiftData = 0;
+                                    Object.entries(shiftTable.dayStartMap[shiftDateStr] || {}).forEach(([key, data]) => {
+                                      if (key.startsWith(`${staff.staff_id}_`)) {
+                                        dayShiftData += data.dayShift;
+                                      }
+                                    });
+
+                                    sum += value > 0 ? value : dayShiftData;
+                                  }
+                                  return sum > 0 ? sum : '';
+                                })()}
+                              </td>
+                            </tr>
+                          );
+                        });
+                      })()}
                     </tbody>
                   </table>
                 </div>
@@ -534,18 +671,21 @@ export default function Phase4() {
                           })
                           .map(([key, staff]) => staff);
 
+                        const isMultipleStaffs = locationStaffs.length > 1;
+                        const alertColor = isMultipleStaffs ? '#ffcccc' : '#f0f0f0';
+
                         return (
                           <React.Fragment key={location}>
                             <tr className="location-header">
-                              <td colSpan={1 + shiftTable.daysInMonth + 1} style={{ fontWeight: 'bold', backgroundColor: '#f0f0f0', padding: '10px' }}>
-                                {location}
+                              <td colSpan={1 + shiftTable.daysInMonth + 1} style={{ fontWeight: 'bold', backgroundColor: alertColor, padding: '10px', color: isMultipleStaffs ? '#cc0000' : 'inherit' }}>
+                                {location} {isMultipleStaffs && `⚠ ${locationStaffs.length}人`}
                               </td>
                             </tr>
                             {locationStaffs.length > 0 ? (
                               locationStaffs.map((staff) => {
                                 const staffKey = `${staff.staff_id}_${location}`;
                                 return (
-                                  <tr key={staffKey}>
+                                  <tr key={staffKey} style={{ backgroundColor: isMultipleStaffs ? '#ffeeee' : 'inherit' }}>
                                     <td style={{ fontWeight: '600' }}>{staff.staff_name}</td>
                                     {Array.from({ length: shiftTable.daysInMonth }, (_, i) => {
                                       const day = i + 1;
@@ -554,13 +694,13 @@ export default function Phase4() {
                                       const dayData = shiftTable.dayStartMap[shiftDateStr]?.[staffKey];
                                       const editKey = `night_${staffKey}_${shiftDateStr}`;
                                       const displayValue = shiftEdits[editKey] !== undefined ? shiftEdits[editKey] : (dayData?.nightShift || 0);
-                                      const isEditing = shiftEdits[editKey] !== undefined;
+                                      const isEditing = editingKey === editKey;
 
                                       return (
                                         <td
                                           key={day}
                                           style={{ textAlign: 'center', color: displayValue > 0 ? '#0066cc' : '#ccc', fontWeight: displayValue > 0 ? '600' : 'normal', padding: '2px', cursor: 'pointer' }}
-                                          onClick={() => setShiftEdits(prev => ({ ...prev, [editKey]: displayValue }))}
+                                          onClick={() => setEditingKey(editKey)}
                                         >
                                           {isEditing ? (
                                             <input
@@ -568,7 +708,7 @@ export default function Phase4() {
                                               step="0.5"
                                               value={displayValue}
                                               onChange={(e) => setShiftEdits(prev => ({ ...prev, [editKey]: e.target.value }))}
-                                              onBlur={() => setShiftEdits(prev => { const newEdits = { ...prev }; delete newEdits[editKey]; return newEdits; })}
+                                              onBlur={() => setEditingKey(null)}
                                               autoFocus
                                               style={{ width: '40px', textAlign: 'center', border: '1px solid #0066cc', padding: '2px' }}
                                             />
@@ -610,52 +750,233 @@ export default function Phase4() {
                 </div>
               </div>
 
+              <div style={{ marginTop: '20px', textAlign: 'center' }}>
+                <button
+                  onClick={handleSaveShift}
+                  style={{
+                    padding: '12px 30px',
+                    backgroundColor: '#28a745',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    fontWeight: 'bold',
+                    fontSize: '16px'
+                  }}
+                >
+                  シフト保存
+                </button>
+              </div>
+
               {shiftTable.staffLocationMap && Object.keys(shiftTable.staffLocationMap).length > 0 && (
                 <div className="shift-table-section" style={{ marginTop: '30px' }}>
-                  <h3>スタッフ一覧</h3>
+                  <h3>スタッフ一覧・職種別集計</h3>
                   <div className="shift-table-wrapper">
-                    <table className="shift-table">
-                      <thead>
-                        <tr>
-                          <th>スタッフ名</th>
-                          <th>日勤</th>
-                          <th>夜勤</th>
-                          <th>合計</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {(() => {
-                          const staffSummary = {};
-                          Object.entries(shiftTable.staffMonthlySummary || {}).forEach(([key, summary]) => {
-                            const staffId = key.split('_')[0];
-                            if (!staffSummary[staffId]) {
-                              staffSummary[staffId] = { dayShift: 0, nightShift: 0, total: 0, staffName: '' };
+                    {(() => {
+                      // スタッフデータを集計（shiftEdits を反映）
+                      const staffSummary = {};
+
+                      // staffLocationMap からスタッフ情報を初期化（重複なし）
+                      const uniqueStaffs = {};
+                      Object.entries(shiftTable.staffLocationMap || {}).forEach(([staffLocationKey, staffInfo]) => {
+                        const staffId = String(staffInfo.staff_id);
+                        if (!uniqueStaffs[staffId]) {
+                          uniqueStaffs[staffId] = staffInfo;
+                        }
+                      });
+
+                      // 各スタッフの初期化
+                      Object.entries(uniqueStaffs).forEach(([staffId, staffInfo]) => {
+                        staffSummary[staffId] = {
+                          dayShift: 0,
+                          nightShift: 0,
+                          total: 0,
+                          staffName: staffInfo.staff_name || '',
+                          positions: staffInfo.positions || []
+                        };
+                      });
+
+                      // 各スタッフの日勤・夜勤・合計を1日〜28日のループで計算
+                      Object.entries(staffSummary).forEach(([staffId, summary]) => {
+                        let dayShiftSum = 0;
+                        let nightShiftSum = 0;
+
+                        for (let day = 1; day <= 28; day++) {
+                          const shiftDate = new Date(shiftTable.year, shiftTable.month - 1, day, 17, 0, 0);
+                          const shiftDateStr = shiftDate.toISOString().split('T')[0];
+
+                          // このスタッフの全ての location でのシフトを集計
+                          const dayData = shiftTable.dayStartMap[shiftDateStr] || {};
+                          let dayShiftValue = 0;
+                          let nightShiftValue = 0;
+
+                          Object.entries(dayData).forEach(([key, data]) => {
+                            if (String(data.staff_id) === staffId) {
+                              // editKey を確認（day）
+                              const dayEditKey = `day_${key}_${shiftDateStr}`;
+                              const editedDay = shiftEdits[dayEditKey];
+                              dayShiftValue += editedDay !== undefined ? parseFloat(editedDay) || 0 : (data.dayShift || 0);
+
+                              // editKey を確認（night）
+                              const nightEditKey = `night_${key}_${shiftDateStr}`;
+                              const editedNight = shiftEdits[nightEditKey];
+                              nightShiftValue += editedNight !== undefined ? parseFloat(editedNight) || 0 : (data.nightShift || 0);
                             }
-                            const staffInfo = Object.values(shiftTable.staffLocationMap || {}).find(s => String(s.staff_id) === staffId);
-                            staffSummary[staffId].staffName = staffInfo?.staff_name || '';
-                            staffSummary[staffId].dayShift += summary.dayShift;
-                            staffSummary[staffId].nightShift += summary.nightShift;
-                            staffSummary[staffId].total += summary.total;
                           });
 
-                          return Object.entries(staffSummary).map(([staffId, summary]) => {
-                            const dayShift = Math.round(summary.dayShift * 10) / 10;
-                            const nightShift = Math.round(summary.nightShift * 10) / 10;
-                            const total = Math.round(summary.total * 10) / 10;
-                            const isOverLimit = total > 160;
+                          dayShiftSum += dayShiftValue;
+                          nightShiftSum += nightShiftValue;
+                        }
 
-                            return (
-                              <tr key={staffId} style={isOverLimit ? { backgroundColor: '#fff3cd' } : {}}>
-                                <td style={{ fontWeight: '600' }}>{summary.staffName}</td>
-                                <td style={{ textAlign: 'center', padding: '5px' }}>日勤{dayShift}時間</td>
-                                <td style={{ textAlign: 'center', padding: '5px' }}>夜勤{nightShift}時間</td>
-                                <td style={{ textAlign: 'center', fontWeight: '600', color: isOverLimit ? '#d9534f' : '#0066cc', padding: '5px' }}>合計{total}時間</td>
-                              </tr>
-                            );
+                        staffSummary[staffId].dayShift = dayShiftSum;
+                        staffSummary[staffId].nightShift = nightShiftSum;
+                        staffSummary[staffId].total = dayShiftSum + nightShiftSum;
+                      });
+
+                      // 職種ごとにグループ化（職種に対応する時間のみ表示）
+                      const staffsByPosition = {};
+                      Object.entries(staffSummary).forEach(([staffId, summary]) => {
+                        const positions = Array.isArray(summary.positions) ? summary.positions : [];
+                        if (positions.length === 0) {
+                          const positionName = '未設定';
+                          if (!staffsByPosition[positionName]) {
+                            staffsByPosition[positionName] = [];
+                          }
+                          staffsByPosition[positionName].push({ staffId, ...summary });
+                        } else {
+                          positions.forEach(pos => {
+                            const positionName = pos.position || '未設定';
+                            if (!staffsByPosition[positionName]) {
+                              staffsByPosition[positionName] = [];
+                            }
+                            if (!staffsByPosition[positionName].find(s => s.staffId === staffId)) {
+                              const displayData = { staffId, ...summary };
+                              // 職種に対応する時間のみを表示
+                              if (positionName === '世話人') {
+                                displayData.nightShift = 0;
+                              } else if (positionName === '夜間世話人') {
+                                displayData.dayShift = 0;
+                              }
+                              displayData.total = displayData.dayShift + displayData.nightShift;
+                              staffsByPosition[positionName].push(displayData);
+                            }
                           });
-                        })()}
-                      </tbody>
-                    </table>
+                        }
+                      });
+
+                      const positionSections = Object.entries(staffsByPosition).map(([positionName, staffList]) => {
+                        // 職種ごとの小計を計算
+                        const positionTotals = {
+                          dayShift: 0,
+                          nightShift: 0,
+                          total: 0
+                        };
+                        staffList.forEach(staff => {
+                          positionTotals.dayShift += staff.dayShift;
+                          positionTotals.nightShift += staff.nightShift;
+                          positionTotals.total += staff.total;
+                        });
+
+                        const posTotalDay = Math.round(positionTotals.dayShift * 10) / 10;
+                        const posTotalNight = Math.round(positionTotals.nightShift * 10) / 10;
+                        const posTotalAll = Math.round(positionTotals.total * 10) / 10;
+                        const posKinteiShokuin = Math.round((positionTotals.total / 160) * 10) / 10;
+
+                        return (
+                          <div key={positionName} style={{ marginBottom: '30px' }}>
+                            <h5 style={{ backgroundColor: '#e8f4f8', padding: '8px 12px', marginBottom: '0', fontSize: '14px', fontWeight: '600', borderLeft: '3px solid #0099cc' }}>
+                              {positionName}
+                            </h5>
+                            <table className="shift-table" style={{ marginTop: '0', borderTop: 'none' }}>
+                              <thead>
+                                <tr>
+                                  <th>スタッフ名</th>
+                                  <th>日勤</th>
+                                  <th>夜勤</th>
+                                  <th>合計</th>
+                                  <th>常勤換算数</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {staffList.map(staff => {
+                                  const dayShift = Math.round(staff.dayShift * 10) / 10;
+                                  const nightShift = Math.round(staff.nightShift * 10) / 10;
+                                  const total = Math.round(staff.total * 10) / 10;
+                                  const kinteiShokuin = Math.round((staff.total / 160) * 10) / 10;
+                                  const isOver160 = total > 160;
+
+                                  return (
+                                    <tr key={staff.staffId} style={{ backgroundColor: isOver160 ? '#ffcccc' : 'inherit' }}>
+                                      <td style={{ fontWeight: '600', color: isOver160 ? '#cc0000' : 'inherit' }}>{staff.staffName} {isOver160 && '⚠'}</td>
+                                      <td style={{ textAlign: 'right', padding: '5px' }}>{dayShift}時間</td>
+                                      <td style={{ textAlign: 'right', padding: '5px' }}>{nightShift}時間</td>
+                                      <td style={{ textAlign: 'right', padding: '5px', fontWeight: isOver160 ? 'bold' : 'normal', color: isOver160 ? '#cc0000' : 'inherit' }}>{total}時間</td>
+                                      <td style={{ textAlign: 'center', padding: '5px', fontWeight: '600' }}>{kinteiShokuin}人</td>
+                                    </tr>
+                                  );
+                                })}
+                                <tr style={{ backgroundColor: '#f9f9f9', fontWeight: '600' }}>
+                                  <td>小計</td>
+                                  <td style={{ textAlign: 'right', padding: '5px' }}>{posTotalDay}時間</td>
+                                  <td style={{ textAlign: 'right', padding: '5px' }}>{posTotalNight}時間</td>
+                                  <td style={{ textAlign: 'right', padding: '5px' }}>{posTotalAll}時間</td>
+                                  <td style={{ textAlign: 'center', padding: '5px' }}>{posKinteiShokuin}人</td>
+                                </tr>
+                              </tbody>
+                            </table>
+                          </div>
+                        );
+                      });
+
+                      return (
+                        <>
+                          {/* 職種別セクション */}
+                          <div>
+                            <h3 style={{ marginTop: '30px', marginBottom: '20px', fontSize: '18px', fontWeight: 'bold', borderBottom: '2px solid #0099cc', paddingBottom: '10px' }}>
+                              【職種別集計】
+                            </h3>
+                            {positionSections}
+                          </div>
+
+                          {/* スタッフ一覧セクション */}
+                          <div style={{ marginTop: '40px' }}>
+                            <h3 style={{ marginBottom: '20px', fontSize: '18px', fontWeight: 'bold', borderBottom: '2px solid #009900', paddingBottom: '10px' }}>
+                              【スタッフ一覧】
+                            </h3>
+                            <table className="shift-table">
+                              <thead>
+                                <tr>
+                                  <th>スタッフ名</th>
+                                  <th>日勤</th>
+                                  <th>夜勤</th>
+                                  <th>合計</th>
+                                  <th>常勤換算数</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {Object.entries(staffSummary).map(([staffId, staff]) => {
+                                  const dayShift = Math.round(staff.dayShift * 10) / 10;
+                                  const nightShift = Math.round(staff.nightShift * 10) / 10;
+                                  const total = Math.round(staff.total * 10) / 10;
+                                  const kinteiShokuin = Math.round((staff.total / 160) * 10) / 10;
+                                  const isOver160 = total > 160;
+
+                                  return (
+                                    <tr key={staffId} style={{ backgroundColor: isOver160 ? '#ffcccc' : 'inherit' }}>
+                                      <td style={{ fontWeight: '600', color: isOver160 ? '#cc0000' : 'inherit' }}>{staff.staffName} {isOver160 && '⚠'}</td>
+                                      <td style={{ textAlign: 'right', padding: '5px' }}>{dayShift}時間</td>
+                                      <td style={{ textAlign: 'right', padding: '5px' }}>{nightShift}時間</td>
+                                      <td style={{ textAlign: 'right', padding: '5px', fontWeight: isOver160 ? 'bold' : 'normal', color: isOver160 ? '#cc0000' : 'inherit' }}>{total}時間</td>
+                                      <td style={{ textAlign: 'center', padding: '5px', fontWeight: '600' }}>{kinteiShokuin}人</td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        </>
+                      );
+                    })()}
                   </div>
                 </div>
               )}

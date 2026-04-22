@@ -304,28 +304,6 @@ export default function Phase3() {
         year: targetYear,
         month: targetMonth
       });
-
-      // ローカルストレージにも保存（オフライン対応）
-      const submittedKey = `shift_submissions_${selectedFacility}`;
-      const currentSubmitted = JSON.parse(localStorage.getItem(submittedKey) || '{}');
-
-      if (!currentSubmitted[staffId]) {
-        currentSubmitted[staffId] = {};
-      }
-
-      autoDatesList.forEach(dateStr => {
-        currentSubmitted[staffId][dateStr] = {
-          staff_id: staffId,
-          staff_name: staffName,
-          location_id: '',
-          location_name: '（勤務曜日により自動申告）',
-          submitted_at: new Date().toISOString(),
-          type: 'auto'
-        };
-      });
-
-      localStorage.setItem(submittedKey, JSON.stringify(currentSubmitted));
-      setSubmittedShifts(currentSubmitted);
     } catch (error) {
       console.error('自動申告エラー:', error);
       alert('申告に失敗しました');
@@ -375,28 +353,6 @@ export default function Phase3() {
         facility_id: parseInt(selectedFacility),
         submissions: submissions
       });
-
-      // ローカルストレージにも保存
-      const submittedKey = `shift_submissions_${selectedFacility}`;
-      const currentSubmitted = JSON.parse(localStorage.getItem(submittedKey) || '{}');
-
-      if (!currentSubmitted[selectedStaffId]) {
-        currentSubmitted[selectedStaffId] = {};
-      }
-
-      Object.entries(selectedDates).forEach(([dateStr, locationData]) => {
-        currentSubmitted[selectedStaffId][dateStr] = {
-          staff_id: selectedStaffId,
-          staff_name: selectedStaffName,
-          location_id: locationData.location_id,
-          location_name: locationData.location_name,
-          submitted_at: new Date().toISOString(),
-          type: 'manual'
-        };
-      });
-
-      localStorage.setItem(submittedKey, JSON.stringify(currentSubmitted));
-      setSubmittedShifts(currentSubmitted);
 
       setShowConfirm(false);
       setSubmissionComplete(true);

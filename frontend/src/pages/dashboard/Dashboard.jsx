@@ -137,39 +137,64 @@ export default function Dashboard() {
   };
 
   // 申告データを削除
-  const handleDeleteSubmission = (dateToDelete) => {
-    const submittedKey = `shift_submissions_${selectedFacility}`;
-    const currentSubmitted = JSON.parse(localStorage.getItem(submittedKey) || '{}');
-    const staffId = String(showDetails.staff_id);
-
-    if (currentSubmitted[staffId] && currentSubmitted[staffId][dateToDelete]) {
-      delete currentSubmitted[staffId][dateToDelete];
-      localStorage.setItem(submittedKey, JSON.stringify(currentSubmitted));
+  const handleDeleteSubmission = async (submissionId) => {
+    try {
+      await axios.delete(`${API_BASE_URL}/dashboard/submissions/${submissionId}`);
       refetchDashboardData();
+    } catch (error) {
+      console.error('申告削除エラー:', error);
+      alert('申告削除に失敗しました');
     }
   };
 
   // 申告データの日付と拠点を更新
-  const handleUpdateDateAndLocation = (oldDate, newDate, newLocationName) => {
-    const submittedKey = `shift_submissions_${selectedFacility}`;
-    const currentSubmitted = JSON.parse(localStorage.getItem(submittedKey) || '{}');
-    const staffId = String(showDetails.staff_id);
-
-    if (currentSubmitted[staffId] && currentSubmitted[staffId][oldDate]) {
-      const oldData = { ...currentSubmitted[staffId][oldDate] };
-      delete currentSubmitted[staffId][oldDate];
-      currentSubmitted[staffId][newDate] = {
-        ...oldData,
+  const handleUpdateDateAndLocation = async (submissionId, newDate, newLocationId) => {
+    try {
+      await axios.put(`${API_BASE_URL}/dashboard/submissions/${submissionId}`, {
         date: newDate,
-        location_name: newLocationName
-      };
-      localStorage.setItem(submittedKey, JSON.stringify(currentSubmitted));
+        location_id: newLocationId
+      });
 
       setEditingDate(null);
       setEditingNewDate(null);
       setEditingLocation(null);
       refetchDashboardData();
+    } catch (error) {
+      console.error('申告更新エラー:', error);
+      const errorMessage = error.response?.data?.error || '申告更新に失敗しました';
+      alert(errorMessage);
     }
+  };
+
+  // スタッフを職種ごとにグループ化
+  const groupStaffsByPosition = (staffs) => {
+    const grouped = {};
+
+    staffs.forEach(staff => {
+      const positions = Array.isArray(staff.positions) ? staff.positions : [];
+
+      if (positions.length === 0) {
+        // 職種がない場合は「未設定」グループに追加
+        if (!grouped['未設定']) {
+          grouped['未設定'] = [];
+        }
+        grouped['未設定'].push(staff);
+      } else {
+        // 各職種ごとにスタッフを追加
+        positions.forEach(pos => {
+          const positionName = pos.position || '未設定';
+          if (!grouped[positionName]) {
+            grouped[positionName] = [];
+          }
+          // 同じスタッフが複数職種の場合、各職種に1回だけ追加
+          if (!grouped[positionName].find(s => s.staff_id === staff.staff_id)) {
+            grouped[positionName].push(staff);
+          }
+        });
+      }
+    });
+
+    return grouped;
   };
 
   if (loading) {
@@ -334,41 +359,284 @@ export default function Dashboard() {
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                         {showDetails.submission_details.sort((a, b) => a.date.localeCompare(b.date)).map((detail) => (
                           <div
-                            key={detail.date}
+                            key={detail.submission_id}
                             style={{
                               padding: '12px',
                               backgroundColor: '#f5f5f5',
                               borderLeft: '4px solid #007bff',
-                              borderRadius: '4px',
-                              display: 'flex',
-                              justifyContent: 'space-between',
-                              alignItems: 'center'
+                              borderRadius: '4px'
                             }}
                           >
-                            <div>
-                              <div style={{ fontWeight: '600', color: '#333', marginBottom: '4px' }}>{detail.date}</div>
-                              <div style={{ color: '#666', fontSize: '0.9em' }}>拠点: {detail.location_name || '-'}</div>
-                            </div>
-                            <button
-                              onClick={() => handleDeleteSubmission(detail.date)}
-                              style={{
-                                padding: '6px 12px',
-                                fontSize: '0.8em',
-                                backgroundColor: '#dc3545',
-                                color: 'white',
-                                border: 'none',
-                                borderRadius: '4px',
-                                cursor: 'pointer',
-                                whiteSpace: 'nowrap'
-                              }}
-                            >
-                              削除
-                            </button>
+                            {editingDate === detail.submission_id ? (
+                              // 編集モード
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                <div>
+                                  <label style={{ fontSize: '0.85em', color: '#666' }}>日付</label>
+                                  <input
+                                    type="date"
+                                    value={editingNewDate || detail.date}
+                                    onChange={(e) => setEditingNewDate(e.target.value)}
+                                    style={{
+                                      padding: '6px',
+                                      fontSize: '0.9em',
+                                      border: '1px solid #ddd',
+                                      borderRadius: '4px',
+                                      width: '100%'
+                                    }}
+                                  />
+                                </div>
+                                <div>
+                                  <label style={{ fontSize: '0.85em', color: '#666' }}>拠点</label>
+                                  <select
+                                    value={editingLocation || detail.location_id || ''}
+                                    onChange={(e) => setEditingLocation(e.target.value)}
+                                    style={{
+                                      padding: '6px',
+                                      fontSize: '0.9em',
+                                      border: '1px solid #ddd',
+                                      borderRadius: '4px',
+                                      width: '100%'
+                                    }}
+                                  >
+                                    <option value="">--- 選択してください ---</option>
+                                    {locations.map((loc) => (
+                                      <option key={loc.location_id} value={loc.location_id}>
+                                        {loc.location_name}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+                                <div style={{ display: 'flex', gap: '8px' }}>
+                                  <button
+                                    onClick={() =>
+                                      handleUpdateDateAndLocation(
+                                        detail.submission_id,
+                                        editingNewDate || detail.date,
+                                        editingLocation ? parseInt(editingLocation) : detail.location_id
+                                      )
+                                    }
+                                    style={{
+                                      padding: '6px 12px',
+                                      fontSize: '0.8em',
+                                      backgroundColor: '#28a745',
+                                      color: 'white',
+                                      border: 'none',
+                                      borderRadius: '4px',
+                                      cursor: 'pointer',
+                                      flex: 1
+                                    }}
+                                  >
+                                    保存
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      setEditingDate(null);
+                                      setEditingNewDate(null);
+                                      setEditingLocation(null);
+                                    }}
+                                    style={{
+                                      padding: '6px 12px',
+                                      fontSize: '0.8em',
+                                      backgroundColor: '#6c757d',
+                                      color: 'white',
+                                      border: 'none',
+                                      borderRadius: '4px',
+                                      cursor: 'pointer',
+                                      flex: 1
+                                    }}
+                                  >
+                                    キャンセル
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              // 表示モード
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <div>
+                                  <div style={{ fontWeight: '600', color: '#333', marginBottom: '4px' }}>{detail.date}</div>
+                                  <div style={{ color: '#666', fontSize: '0.9em' }}>拠点: {detail.location_name || '-'}</div>
+                                  {detail.type === 'auto' && (
+                                    <div style={{ color: '#999', fontSize: '0.8em', marginTop: '4px' }}>（自動申告）</div>
+                                  )}
+                                </div>
+                                <div style={{ display: 'flex', gap: '8px' }}>
+                                  {detail.type === 'manual' && (
+                                    <button
+                                      onClick={() => setEditingDate(detail.submission_id)}
+                                      style={{
+                                        padding: '6px 12px',
+                                        fontSize: '0.8em',
+                                        backgroundColor: '#ffc107',
+                                        color: '#333',
+                                        border: 'none',
+                                        borderRadius: '4px',
+                                        cursor: 'pointer',
+                                        whiteSpace: 'nowrap'
+                                      }}
+                                    >
+                                      編集
+                                    </button>
+                                  )}
+                                  <button
+                                    onClick={() => handleDeleteSubmission(detail.submission_id)}
+                                    style={{
+                                      padding: '6px 12px',
+                                      fontSize: '0.8em',
+                                      backgroundColor: '#dc3545',
+                                      color: 'white',
+                                      border: 'none',
+                                      borderRadius: '4px',
+                                      cursor: 'pointer',
+                                      whiteSpace: 'nowrap'
+                                    }}
+                                  >
+                                    削除
+                                  </button>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         ))}
                       </div>
                     ) : (
                       <p style={{ color: '#999' }}>申告データがありません</p>
+                    )}
+
+                    <div style={{ marginTop: '20px', paddingTop: '20px', borderTop: '1px solid #ddd' }}>
+                      <button
+                        onClick={() => setEditingDate('new')}
+                        style={{
+                          padding: '10px 16px',
+                          fontSize: '14px',
+                          backgroundColor: '#28a745',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '4px',
+                          cursor: 'pointer',
+                          width: '100%',
+                          fontWeight: '600'
+                        }}
+                      >
+                        + 新規追加
+                      </button>
+                    </div>
+
+                    {editingDate === 'new' && (
+                      <div style={{ marginTop: '20px', padding: '15px', backgroundColor: '#f5f5f5', borderRadius: '4px' }}>
+                        <div style={{ marginBottom: '10px' }}>
+                          <label style={{ fontSize: '0.85em', color: '#666', fontWeight: '600' }}>日付</label>
+                          <input
+                            type="date"
+                            value={editingNewDate || ''}
+                            onChange={(e) => setEditingNewDate(e.target.value)}
+                            style={{
+                              padding: '8px',
+                              fontSize: '0.9em',
+                              border: '1px solid #ddd',
+                              borderRadius: '4px',
+                              width: '100%',
+                              marginTop: '4px'
+                            }}
+                          />
+                        </div>
+                        <div style={{ marginBottom: '10px' }}>
+                          <label style={{ fontSize: '0.85em', color: '#666', fontWeight: '600' }}>拠点</label>
+                          <select
+                            value={editingLocation || ''}
+                            onChange={(e) => setEditingLocation(e.target.value)}
+                            style={{
+                              padding: '8px',
+                              fontSize: '0.9em',
+                              border: '1px solid #ddd',
+                              borderRadius: '4px',
+                              width: '100%',
+                              marginTop: '4px'
+                            }}
+                          >
+                            <option value="">--- 選択してください ---</option>
+                            {locations.map((loc) => (
+                              <option key={loc.location_id} value={loc.location_id}>
+                                {loc.location_name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <button
+                            onClick={async () => {
+                              if (!editingNewDate || !editingLocation) {
+                                alert('日付と拠点を選択してください');
+                                return;
+                              }
+                              try {
+                                const response = await axios.post(`${API_BASE_URL}/dashboard/submissions/add`, {
+                                  facility_id: selectedFacility,
+                                  staff_id: showDetails.staff_id,
+                                  date: editingNewDate,
+                                  location_id: parseInt(editingLocation),
+                                  year: selectedYear,
+                                  month: selectedMonth
+                                });
+
+                                // 新しい申告をshowDetailsに追加
+                                const newDetail = {
+                                  submission_id: response.data.submission.submission_id,
+                                  date: editingNewDate,
+                                  location_id: parseInt(editingLocation),
+                                  location_name: response.data.submission.location_name,
+                                  type: 'manual'
+                                };
+
+                                setShowDetails({
+                                  ...showDetails,
+                                  submission_details: [...(showDetails.submission_details || []), newDetail],
+                                  submission_count: (showDetails.submission_count || 0) + 1
+                                });
+
+                                setEditingDate(null);
+                                setEditingNewDate(null);
+                                setEditingLocation(null);
+                              } catch (err) {
+                                console.error('追加エラー:', err);
+                                const errorMessage = err.response?.data?.error || '追加に失敗しました';
+                                alert(errorMessage);
+                              }
+                            }}
+                            style={{
+                              padding: '8px 12px',
+                              fontSize: '0.9em',
+                              backgroundColor: '#28a745',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '4px',
+                              cursor: 'pointer',
+                              flex: 1,
+                              fontWeight: '600'
+                            }}
+                          >
+                            追加
+                          </button>
+                          <button
+                            onClick={() => {
+                              setEditingDate(null);
+                              setEditingNewDate(null);
+                              setEditingLocation(null);
+                            }}
+                            style={{
+                              padding: '8px 12px',
+                              fontSize: '0.9em',
+                              backgroundColor: '#6c757d',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '4px',
+                              cursor: 'pointer',
+                              flex: 1
+                            }}
+                          >
+                            キャンセル
+                          </button>
+                        </div>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -378,76 +646,78 @@ export default function Dashboard() {
             {/* 申告済みスタッフ一覧 */}
             {selectedFacility && shiftData && (
               <div className="shift-preview-section">
-                <h3>申告済みスタッフ一覧</h3>
+                <h3>申告済みスタッフ</h3>
                 {shiftData.staffs && shiftData.staffs.length > 0 ? (
-                  <div className="shift-table-wrapper">
-                    <table className="shift-table">
-                      <thead>
-                        <tr>
-                          <th>事業所名</th>
-                          <th>拠点</th>
-                          <th>スタッフ名</th>
-                          <th>職種</th>
-                          <th>勤務曜日</th>
-                          <th>勤務時間</th>
-                          <th>申告状況</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {shiftData.staffs.map((staff) => {
-                          const positions = Array.isArray(staff.positions) ? staff.positions : [];
-                          const positionNames = positions.map(p => p.position || p).join('、') || '-';
-                          const positionHours = positions.length > 0 ? (
-                            positions.map((p, idx) => (
-                              <div key={idx} style={{ fontSize: '0.9em' }}>
-                                {(p.position || p)}: {(p.work_hours_start || p.start) && (p.work_hours_end || p.end) ? `${p.work_hours_start || p.start}～${p.work_hours_end || p.end}` : '-'}
-                              </div>
-                            ))
-                          ) : '-';
-
-                          return (
-                            <tr key={staff.staff_id || staff.staff_name}>
-                              <td>{staff.facility_name || '-'}</td>
-                              <td>{staff.location || '-'}</td>
-                              <td>{staff.staff_name}</td>
-                              <td>{positionNames}</td>
-                              <td>{staff.work_days || '-'}</td>
-                              <td>{positionHours}</td>
-                              <td>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                  {staff.submission_count > 0 ? (
-                                    <span style={{ color: '#28a745', fontWeight: '600' }}>
-                                      申告済み ({staff.submission_count}日)
-                                    </span>
-                                  ) : (
-                                    <span style={{ color: '#999' }}>申告なし</span>
-                                  )}
-                                  {staff.submission_count > 0 && (
-                                    <button
-                                      style={{
-                                        padding: '4px 8px',
-                                        fontSize: '0.85em',
-                                        backgroundColor: '#007bff',
-                                        color: 'white',
-                                        border: 'none',
-                                        borderRadius: '4px',
-                                        cursor: 'pointer'
-                                      }}
-                                      onClick={() => setShowDetails(staff)}
-                                    >
-                                      詳細
-                                    </button>
-                                  )}
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
+                  <div style={{ padding: '20px', backgroundColor: '#f9f9f9', borderRadius: '4px' }}>
+                    {(() => {
+                      const submittedStaffs = shiftData.staffs.filter(staff => staff.submission_count > 0);
+                      return submittedStaffs.length > 0 ? (
+                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                          <tbody>
+                            {submittedStaffs.map((staff) => (
+                              <tr key={staff.staff_id} style={{ borderBottom: '1px solid #ddd', padding: '10px' }}>
+                                <td style={{ padding: '10px 0', fontSize: '16px', flex: 1 }}>
+                                  {staff.staff_name}
+                                </td>
+                                <td style={{ padding: '10px 0', textAlign: 'center', fontSize: '14px', color: '#28a745', fontWeight: '600' }}>
+                                  申告済み
+                                </td>
+                                <td style={{ padding: '10px 0', textAlign: 'right' }}>
+                                  <button
+                                    onClick={() => setShowDetails(staff)}
+                                    style={{
+                                      padding: '6px 12px',
+                                      marginRight: '8px',
+                                      fontSize: '14px',
+                                      backgroundColor: '#007bff',
+                                      color: 'white',
+                                      border: 'none',
+                                      borderRadius: '4px',
+                                      cursor: 'pointer'
+                                    }}
+                                  >
+                                    修正
+                                  </button>
+                                  <button
+                                    onClick={async () => {
+                                      if (confirm(`${staff.staff_name}の申告を削除しますか？`)) {
+                                        try {
+                                          const submissionIds = staff.submission_details?.map(d => d.submission_id) || [];
+                                          for (const id of submissionIds) {
+                                            await axios.delete(`${API_BASE_URL}/dashboard/submissions/${id}`);
+                                          }
+                                          // 画面をリフレッシュ
+                                          window.location.reload();
+                                        } catch (err) {
+                                          console.error('削除エラー:', err);
+                                          alert('削除に失敗しました');
+                                        }
+                                      }
+                                    }}
+                                    style={{
+                                      padding: '6px 12px',
+                                      fontSize: '14px',
+                                      backgroundColor: '#dc3545',
+                                      color: 'white',
+                                      border: 'none',
+                                      borderRadius: '4px',
+                                      cursor: 'pointer'
+                                    }}
+                                  >
+                                    削除
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      ) : (
+                        <p className="empty-message" style={{ margin: 0 }}>申告済みスタッフはありません</p>
+                      );
+                    })()}
                   </div>
                 ) : (
-                  <p className="empty-message">曜日登録済みのスタッフがありません</p>
+                  <p className="empty-message">スタッフがありません</p>
                 )}
               </div>
             )}
