@@ -1,6 +1,6 @@
 {
   "scripts": {
-    "build": "cd frontend && npm run build"
+    "build": "cd frontend && npm run build && cd .. && mkdir -p public && cp -r frontend/dist/* public/"
   },
   "devDependencies": {
     "puppeteer": "^24.41.0"
