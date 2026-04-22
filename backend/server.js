@@ -3,118 +3,22 @@ const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const fs = require('fs');
 const path = require('path');
+const { createClient } = require('@supabase/supabase-js');
 const app = express();
 
 app.use(cors());
 app.use(express.json());
 
 const JWT_SECRET = 'test-secret-key-shift-saas';
-const DB_PATH = path.join(__dirname, 'data', 'db.json');
 
-// JSON ファイルから DB を読み込む
-function loadDB() {
-  try {
-    const data = fs.readFileSync(DB_PATH, 'utf-8');
-    return JSON.parse(data);
-  } catch (err) {
-    console.warn('DB ファイルが見つかりません。デフォルト DB を使用します。');
-    return getDefaultDB();
-  }
-}
+// Supabaseクライアント初期化
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
 
-// DB をファイルに保存
-function saveDB(database) {
-  try {
-    const dir = path.dirname(DB_PATH);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    fs.writeFileSync(DB_PATH, JSON.stringify(database, null, 2), 'utf-8');
-  } catch (err) {
-    console.error('DB 保存エラー:', err);
-  }
-}
-
-// デフォルト DB
-function getDefaultDB() {
-  return {
-    corporations: [
-      { corp_id: 1, corp_name: 'ゆうみ株式会社' }
-    ],
-    facilities: {
-      1: [
-        { facility_id: 1, corp_id: 1, facility_name: 'ゆうみのいえ' }
-      ]
-    },
-    locations: {
-      1: [
-        { location_id: 1, facility_id: 1, location_name: '三本木' },
-        { location_id: 2, facility_id: 1, location_name: '江島' },
-        { location_id: 3, facility_id: 1, location_name: '牛川' }
-      ]
-    },
-    staffs: {
-      1: []
-    },
-    submissions: {
-      1: []
-    },
-    shifts: {
-      1: []
-    }
-  };
-}
-
-// DB を読み込み
-let db = loadDB();
-
-// nextId を復元または初期化
-function initializeCounters() {
-  let nextCorpId = 2;
-  let nextFacilityId = 2;
-  let nextLocationId = 4;
-  let nextStaffId = 1;
-  let nextSubmissionId = 1;
-
-  // 最大 ID を検出
-  if (db.corporations.length > 0) {
-    nextCorpId = Math.max(...db.corporations.map(c => c.corp_id)) + 1;
-  }
-
-  Object.values(db.facilities).forEach(facilities => {
-    if (facilities.length > 0) {
-      nextFacilityId = Math.max(nextFacilityId, Math.max(...facilities.map(f => f.facility_id)) + 1);
-    }
-  });
-
-  Object.values(db.locations).forEach(locations => {
-    if (locations.length > 0) {
-      nextLocationId = Math.max(nextLocationId, Math.max(...locations.map(l => l.location_id)) + 1);
-    }
-  });
-
-  Object.values(db.staffs).forEach(staffs => {
-    if (staffs.length > 0) {
-      nextStaffId = Math.max(nextStaffId, Math.max(...staffs.map(s => s.staff_id)) + 1);
-    }
-  });
-
-  Object.values(db.submissions).forEach(submissions => {
-    if (submissions.length > 0) {
-      nextSubmissionId = Math.max(nextSubmissionId, Math.max(...submissions.map(s => s.submission_id)) + 1);
-    }
-  });
-
-  return { nextCorpId, nextFacilityId, nextLocationId, nextStaffId, nextSubmissionId };
-}
-
-const { nextCorpId: initCorpId, nextFacilityId: initFacilityId, nextLocationId: initLocationId, nextStaffId: initStaffId, nextSubmissionId: initSubmissionId } = initializeCounters();
-
-let nextCorpId = initCorpId;
-let nextFacilityId = initFacilityId;
-let nextLocationId = initLocationId;
-let nextStaffId = initStaffId;
-let nextSubmissionId = initSubmissionId;
+// Supabase 移行完了 - JSON ファイル操作不要
+// ID はデータベースの SERIAL/SEQUENCE で自動生成
 
 // ========== ユーティリティ関数 ==========
 function verifyToken(req, res, next) {
@@ -168,536 +72,728 @@ app.post('/api/auth/login', (req, res) => {
 });
 
 // ========== 法人 ==========
-app.get('/api/phase1/corporations/', (req, res) => {
-  res.json(db.corporations);
+// ========== Phase 1：法人・事業所・拠点管理 ==========
+app.get('/api/phase1/corporations/', async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('corporations').select('*');
+    if (error) throw error;
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
-app.post('/api/phase1/corporations/', (req, res) => {
-  const { corp_name } = req.body;
-  const corp = {
-    corp_id: nextCorpId++,
-    corp_name
-  };
-  db.corporations.push(corp);
-  db.facilities[corp.corp_id] = [];
-  db.locations[corp.corp_id] = {};
-  saveDB(db);
-  res.status(201).json(corp);
+app.post('/api/phase1/corporations/', async (req, res) => {
+  try {
+    const { corp_name } = req.body;
+    const { data, error } = await supabase
+      .from('corporations')
+      .insert({ corp_name })
+      .select();
+    if (error) throw error;
+    res.status(201).json(data[0]);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
-app.delete('/api/phase1/corporations/:corpId', (req, res) => {
-  const corpId = parseInt(req.params.corpId);
-  db.corporations = db.corporations.filter(c => c.corp_id !== corpId);
-  delete db.facilities[corpId];
-  delete db.locations[corpId];
-  saveDB(db);
-  res.json({ message: 'Deleted' });
+app.delete('/api/phase1/corporations/:corpId', async (req, res) => {
+  try {
+    const corpId = parseInt(req.params.corpId);
+    const { error } = await supabase
+      .from('corporations')
+      .delete()
+      .eq('corp_id', corpId);
+    if (error) throw error;
+    res.json({ message: 'Deleted' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // ========== 事業所 ==========
-app.get('/api/phase1/corporations/:corpId/facilities/', (req, res) => {
-  const corpId = parseInt(req.params.corpId);
-  res.json(db.facilities[corpId] || []);
+app.get('/api/phase1/corporations/:corpId/facilities/', async (req, res) => {
+  try {
+    const corpId = parseInt(req.params.corpId);
+    const { data, error } = await supabase
+      .from('facilities')
+      .select('*')
+      .eq('corp_id', corpId);
+    if (error) throw error;
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
-app.post('/api/phase1/corporations/:corpId/facilities/', (req, res) => {
-  const corpId = parseInt(req.params.corpId);
-  const { facility_name } = req.body;
-  const facility = {
-    facility_id: nextFacilityId++,
-    facility_name,
-    corp_id: corpId
-  };
-  if (!db.facilities[corpId]) {
-    db.facilities[corpId] = [];
-    db.locations[corpId] = {};
+app.post('/api/phase1/corporations/:corpId/facilities/', async (req, res) => {
+  try {
+    const corpId = parseInt(req.params.corpId);
+    const { facility_name } = req.body;
+    const { data, error } = await supabase
+      .from('facilities')
+      .insert({ facility_name, corp_id: corpId })
+      .select();
+    if (error) throw error;
+    res.status(201).json(data[0]);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
-  db.facilities[corpId].push(facility);
-  db.locations[facility.facility_id] = [];
-  saveDB(db);
-  res.status(201).json(facility);
 });
 
-app.delete('/api/phase1/facilities/:facilityId', (req, res) => {
-  const facilityId = parseInt(req.params.facilityId);
-  const corpId = parseInt(req.query.corp_id);
-  if (db.facilities[corpId]) {
-    db.facilities[corpId] = db.facilities[corpId].filter(f => f.facility_id !== facilityId);
+app.delete('/api/phase1/facilities/:facilityId', async (req, res) => {
+  try {
+    const facilityId = parseInt(req.params.facilityId);
+    const { error } = await supabase
+      .from('facilities')
+      .delete()
+      .eq('facility_id', facilityId);
+    if (error) throw error;
+    res.json({ message: 'Deleted' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
-  delete db.locations[facilityId];
-  saveDB(db);
-  res.json({ message: 'Deleted' });
 });
 
 // ========== 拠点 ==========
-app.get('/api/phase1/facilities/:facilityId/locations/', (req, res) => {
-  const facilityId = parseInt(req.params.facilityId);
-  res.json(db.locations[facilityId] || []);
-});
-
-app.post('/api/phase1/facilities/:facilityId/locations/', (req, res) => {
-  const facilityId = parseInt(req.params.facilityId);
-  const { location_name } = req.body;
-  const location = {
-    location_id: nextLocationId++,
-    location_name,
-    facility_id: facilityId
-  };
-  if (!db.locations[facilityId]) {
-    db.locations[facilityId] = [];
+app.get('/api/phase1/facilities/:facilityId/locations/', async (req, res) => {
+  try {
+    const facilityId = parseInt(req.params.facilityId);
+    const { data, error } = await supabase
+      .from('locations')
+      .select('*')
+      .eq('facility_id', facilityId);
+    if (error) throw error;
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
-  db.locations[facilityId].push(location);
-  saveDB(db);
-  res.status(201).json(location);
 });
 
-app.delete('/api/phase1/locations/:locationId', (req, res) => {
-  const locationId = parseInt(req.params.locationId);
-  // 全拠点から削除
-  Object.keys(db.locations).forEach(facilityId => {
-    db.locations[facilityId] = db.locations[facilityId].filter(l => l.location_id !== locationId);
-  });
-  saveDB(db);
-  res.json({ message: 'Deleted' });
+app.post('/api/phase1/facilities/:facilityId/locations/', async (req, res) => {
+  try {
+    const facilityId = parseInt(req.params.facilityId);
+    const { location_name } = req.body;
+    const { data, error } = await supabase
+      .from('locations')
+      .insert({ location_name, facility_id: facilityId })
+      .select();
+    if (error) throw error;
+    res.status(201).json(data[0]);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/phase1/locations/:locationId', async (req, res) => {
+  try {
+    const locationId = parseInt(req.params.locationId);
+    const { error } = await supabase
+      .from('locations')
+      .delete()
+      .eq('location_id', locationId);
+    if (error) throw error;
+    res.json({ message: 'Deleted' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // ========== Phase 2：スタッフ管理 ==========
-app.get('/api/phase2/facilities/:facilityId/staffs', (req, res) => {
-  const facilityId = parseInt(req.params.facilityId);
-  const staffs = db.staffs[facilityId] || [];
-  res.json(staffs);
+// ========== Phase 2：スタッフ管理 ==========
+app.get('/api/phase2/facilities/:facilityId/staffs', async (req, res) => {
+  try {
+    const facilityId = parseInt(req.params.facilityId);
+    const { data, error } = await supabase
+      .from('staffs')
+      .select('*')
+      .eq('facility_id', facilityId);
+    if (error) throw error;
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
-app.post('/api/phase2/facilities/:facilityId/staffs', (req, res) => {
-  const facilityId = parseInt(req.params.facilityId);
-  const { staff_name, positions, work_days, break_start, break_end } = req.body;
+app.post('/api/phase2/facilities/:facilityId/staffs', async (req, res) => {
+  try {
+    const facilityId = parseInt(req.params.facilityId);
+    const { staff_name, positions, work_days, break_start, break_end } = req.body;
 
-  if (!staff_name) {
-    return res.status(400).json({ error: 'staff_name is required' });
-  }
-
-  const facility = db.facilities[1]?.find(f => f.facility_id === facilityId);
-  if (!facility) {
-    return res.status(404).json({ error: 'Facility not found' });
-  }
-
-  const staff = {
-    staff_id: nextStaffId++,
-    facility_id: facilityId,
-    corp_id: facility.corp_id,
-    staff_name,
-    positions: positions || [],
-    work_days: work_days || '',
-    break_start: break_start || '',
-    break_end: break_end || ''
-  };
-
-  if (!db.staffs[facilityId]) {
-    db.staffs[facilityId] = [];
-  }
-  db.staffs[facilityId].push(staff);
-  saveDB(db);
-  res.status(201).json(staff);
-});
-
-app.put('/api/phase2/staffs/:staffId', (req, res) => {
-  const staffId = parseInt(req.params.staffId);
-  const { staff_name, positions, work_days, break_start, break_end } = req.body;
-
-  for (const facilityId in db.staffs) {
-    const staff = db.staffs[facilityId].find(s => s.staff_id === staffId);
-    if (staff) {
-      staff.staff_name = staff_name || staff.staff_name;
-      staff.positions = positions !== undefined ? positions : staff.positions;
-      staff.work_days = work_days !== undefined ? work_days : staff.work_days;
-      staff.break_start = break_start !== undefined ? break_start : (staff.break_start || '');
-      staff.break_end = break_end !== undefined ? break_end : (staff.break_end || '');
-      saveDB(db);
-      return res.json(staff);
+    if (!staff_name) {
+      return res.status(400).json({ error: 'staff_name is required' });
     }
+
+    const { data: facility, error: facilityError } = await supabase
+      .from('facilities')
+      .select('corp_id')
+      .eq('facility_id', facilityId)
+      .single();
+
+    if (facilityError) {
+      return res.status(404).json({ error: 'Facility not found' });
+    }
+
+    const { data: staff, error } = await supabase
+      .from('staffs')
+      .insert({
+        facility_id: facilityId,
+        corp_id: facility.corp_id,
+        staff_name,
+        positions: positions || [],
+        work_days: work_days || '',
+        break_start: break_start || '',
+        break_end: break_end || ''
+      })
+      .select();
+
+    if (error) throw error;
+    res.status(201).json(staff[0]);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
-  res.status(404).json({ error: 'Staff not found' });
 });
 
-app.delete('/api/phase2/staffs/:staffId', (req, res) => {
-  const staffId = parseInt(req.params.staffId);
-  for (const facilityId in db.staffs) {
-    const staff = db.staffs[facilityId].find(s => s.staff_id === staffId);
-    if (staff) {
-      db.staffs[facilityId] = db.staffs[facilityId].filter(s => s.staff_id !== staffId);
-      saveDB(db);
-      return res.json({ message: 'Staff deleted' });
+app.put('/api/phase2/staffs/:staffId', async (req, res) => {
+  try {
+    const staffId = parseInt(req.params.staffId);
+    const { staff_name, positions, work_days, break_start, break_end } = req.body;
+
+    const { data: staff, error } = await supabase
+      .from('staffs')
+      .update({
+        staff_name,
+        positions,
+        work_days,
+        break_start,
+        break_end
+      })
+      .eq('staff_id', staffId)
+      .select();
+
+    if (error) throw error;
+    if (staff.length === 0) {
+      return res.status(404).json({ error: 'Staff not found' });
     }
+    res.json(staff[0]);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
-  res.status(404).json({ error: 'Staff not found' });
+});
+
+app.delete('/api/phase2/staffs/:staffId', async (req, res) => {
+  try {
+    const staffId = parseInt(req.params.staffId);
+    const { error } = await supabase
+      .from('staffs')
+      .delete()
+      .eq('staff_id', staffId);
+
+    if (error) throw error;
+    res.json({ message: 'Staff deleted' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // ========== Phase 3：シフト申告 ==========
-app.post('/api/phase3/shift-submissions/auto', (req, res) => {
-  const { staff_id, facility_id, year, month } = req.body;
+// ========== Phase 3：シフト申告 ==========
+app.post('/api/phase3/shift-submissions/auto', async (req, res) => {
+  try {
+    const { staff_id, facility_id, year, month } = req.body;
 
-  if (!staff_id || !facility_id || !year || !month) {
-    return res.status(400).json({ error: 'staff_id, facility_id, year, month are required' });
-  }
+    if (!staff_id || !facility_id || !year || !month) {
+      return res.status(400).json({ error: 'staff_id, facility_id, year, month are required' });
+    }
 
-  const staff = db.staffs[facility_id]?.find(s => s.staff_id === staff_id);
-  if (!staff) {
-    return res.status(404).json({ error: 'Staff not found' });
-  }
+    const { data: staff, error: staffError } = await supabase
+      .from('staffs')
+      .select('staff_id, staff_name, work_days')
+      .eq('staff_id', staff_id)
+      .eq('facility_id', facility_id)
+      .single();
 
-  const dates = generateSubmissionDates(staff.work_days, year, month);
-  const submissions = dates.map(date => ({
-    submission_id: nextSubmissionId++,
-    staff_id,
-    facility_id,
-    date,
-    location_id: null,
-    location_name: '（勤務曜日により自動申告）',
-    submitted_at: new Date().toISOString(),
-    type: 'auto'
-  }));
+    if (staffError) {
+      return res.status(404).json({ error: 'Staff not found' });
+    }
 
-  if (!db.submissions[facility_id]) {
-    db.submissions[facility_id] = [];
-  }
-  db.submissions[facility_id].push(...submissions);
-  saveDB(db);
-
-  res.status(201).json({
-    message: 'Auto-submission created',
-    submission_count: dates.length,
-    staff_id,
-    staff_name: staff.staff_name,
-    year,
-    month,
-    submitted_dates: dates
-  });
-});
-
-app.post('/api/phase3/shift-submissions/manual', (req, res) => {
-  const { staff_id, facility_id, submissions: submissionDates } = req.body;
-
-  if (!staff_id || !facility_id || !Array.isArray(submissionDates)) {
-    return res.status(400).json({ error: 'staff_id, facility_id, submissions array are required' });
-  }
-
-  const staff = db.staffs[facility_id]?.find(s => s.staff_id === staff_id);
-  if (!staff) {
-    return res.status(404).json({ error: 'Staff not found' });
-  }
-
-  const submissions = submissionDates.map(sub => {
-    const location = db.locations[facility_id]?.find(l => l.location_id === sub.location_id);
-    return {
-      submission_id: nextSubmissionId++,
+    const dates = generateSubmissionDates(staff.work_days, year, month);
+    const submissions = dates.map(date => ({
       staff_id,
       facility_id,
-      date: sub.date,
-      location_id: sub.location_id,
-      location_name: location?.location_name || '',
+      date,
+      location_id: null,
+      location_name: '（勤務曜日により自動申告）',
       submitted_at: new Date().toISOString(),
-      type: 'manual'
-    };
-  });
+      type: 'auto'
+    }));
 
-  if (!db.submissions[facility_id]) {
-    db.submissions[facility_id] = [];
+    const { data, error } = await supabase
+      .from('submissions')
+      .insert(submissions)
+      .select();
+
+    if (error) throw error;
+
+    res.status(201).json({
+      message: 'Auto-submission created',
+      submission_count: dates.length,
+      staff_id,
+      staff_name: staff.staff_name,
+      year,
+      month,
+      submitted_dates: dates
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
-  db.submissions[facility_id].push(...submissions);
-  saveDB(db);
-
-  res.status(201).json({
-    message: 'Manual submission created',
-    staff_id,
-    staff_name: staff.staff_name,
-    submission_count: submissions.length,
-    submissions
-  });
 });
 
-app.get('/api/phase3/facilities/:facilityId/submissions', (req, res) => {
-  const facilityId = parseInt(req.params.facilityId);
-  const { year, month } = req.query;
+app.post('/api/phase3/shift-submissions/manual', async (req, res) => {
+  try {
+    const { staff_id, facility_id, submissions: submissionDates } = req.body;
 
-  const submissions = db.submissions[facilityId] || [];
-  const filtered = submissions.filter(sub => {
-    const [subYear, subMonth] = sub.date.split('-');
-    return subYear === String(year) && subMonth === String(month).padStart(2, '0');
-  });
+    if (!staff_id || !facility_id || !Array.isArray(submissionDates)) {
+      return res.status(400).json({ error: 'staff_id, facility_id, submissions array are required' });
+    }
 
-  res.json({
-    year: parseInt(year),
-    month: parseInt(month),
-    submissions: filtered
-  });
+    const { data: staff, error: staffError } = await supabase
+      .from('staffs')
+      .select('staff_id, staff_name')
+      .eq('staff_id', staff_id)
+      .eq('facility_id', facility_id)
+      .single();
+
+    if (staffError) {
+      return res.status(404).json({ error: 'Staff not found' });
+    }
+
+    const submissions = await Promise.all(
+      submissionDates.map(async (sub) => {
+        const { data: location } = await supabase
+          .from('locations')
+          .select('location_name')
+          .eq('location_id', sub.location_id)
+          .single();
+
+        return {
+          staff_id,
+          facility_id,
+          date: sub.date,
+          location_id: sub.location_id,
+          location_name: location?.location_name || '',
+          submitted_at: new Date().toISOString(),
+          type: 'manual'
+        };
+      })
+    );
+
+    const { data, error } = await supabase
+      .from('submissions')
+      .insert(submissions)
+      .select();
+
+    if (error) throw error;
+
+    res.status(201).json({
+      message: 'Manual submission created',
+      staff_id,
+      staff_name: staff.staff_name,
+      submission_count: submissions.length,
+      submissions: data
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/phase3/facilities/:facilityId/submissions', async (req, res) => {
+  try {
+    const facilityId = parseInt(req.params.facilityId);
+    const { year, month } = req.query;
+
+    const { data: submissions, error } = await supabase
+      .from('submissions')
+      .select('*')
+      .eq('facility_id', facilityId);
+
+    if (error) throw error;
+
+    const filtered = submissions.filter(sub => {
+      const [subYear, subMonth] = sub.date.split('-');
+      return subYear === String(year) && subMonth === String(month).padStart(2, '0');
+    });
+
+    res.json({
+      year: parseInt(year),
+      month: parseInt(month),
+      submissions: filtered
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // ========== ダッシュボード API ==========
-app.get('/api/dashboard/summary', (req, res) => {
-  const { facility_id, year, month } = req.query;
-  const facilityId = parseInt(facility_id);
-  const yearInt = parseInt(year);
-  const monthInt = parseInt(month);
+// ========== ダッシュボード：要約 ==========
+app.get('/api/dashboard/summary', async (req, res) => {
+  try {
+    const { facility_id, year, month } = req.query;
+    const facilityId = parseInt(facility_id);
+    const yearInt = parseInt(year);
+    const monthInt = parseInt(month);
 
-  // 事業所名を取得
-  const facility = db.facilities[1]?.find(f => f.facility_id === facilityId);
-  const facilityName = facility?.facility_name || '';
+    // 事業所名を取得
+    const { data: facility } = await supabase
+      .from('facilities')
+      .select('facility_name')
+      .eq('facility_id', facilityId)
+      .single();
 
-  const staffs = db.staffs[facilityId] || [];
-  const submissions = db.submissions[facilityId] || [];
-  const locations = db.locations[facilityId] || [];
+    const facilityName = facility?.facility_name || '';
 
-  const summary = staffs.map(staff => {
-    const staffSubmissions = submissions.filter(sub => sub.staff_id === staff.staff_id && sub.date.startsWith(`${yearInt}-${String(monthInt).padStart(2, '0')}`));
+    // スタッフを取得
+    const { data: staffs, error: staffError } = await supabase
+      .from('staffs')
+      .select('*')
+      .eq('facility_id', facilityId);
 
-    // 日付ごとの拠点情報を保持
-    const submissionDetails = staffSubmissions.map(s => ({
-      submission_id: s.submission_id,
-      date: s.date,
-      location_id: s.location_id,
-      location_name: s.location_name || '',
-      type: s.type
-    }));
-    const submissionDates = staffSubmissions.map(s => s.date);
+    if (staffError) throw staffError;
 
-    // 申告された拠点を取得（重複なし）
-    const submittedLocations = [...new Set(staffSubmissions.map(s => s.location_name))].filter(l => l && l !== '（勤務曜日により自動申告）');
-    const locationDisplay = submittedLocations.length > 0 ? submittedLocations.join('、') : '';
+    // 申告データを取得
+    const { data: submissions, error: submissionError } = await supabase
+      .from('submissions')
+      .select('*')
+      .eq('facility_id', facilityId);
 
-    // 申告状況の判定
-    let submission_count = 0;
-    let submission_status = 'not_submitted';
+    if (submissionError) throw submissionError;
 
-    // 固定勤務（work_days がある）= 無条件で申告済み
-    if (staff.work_days && staff.work_days !== '') {
-      const autoSubmittedDates = generateSubmissionDates(staff.work_days, yearInt, monthInt);
-      submission_count = autoSubmittedDates.length;
-      submission_status = 'submitted';
-    } else {
-      // シフト申告制（work_days がない）= 実申告データのみ
-      submission_count = staffSubmissions.length;
-      if (submission_count > 0) {
+    const summary = staffs.map(staff => {
+      const yearMonthStr = `${yearInt}-${String(monthInt).padStart(2, '0')}`;
+      const staffSubmissions = (submissions || []).filter(
+        sub => sub.staff_id === staff.staff_id && sub.date.startsWith(yearMonthStr)
+      );
+
+      const submissionDetails = staffSubmissions.map(s => ({
+        submission_id: s.submission_id,
+        date: s.date,
+        location_id: s.location_id,
+        location_name: s.location_name || '',
+        type: s.type
+      }));
+
+      const submittedLocations = [...new Set(
+        staffSubmissions
+          .map(s => s.location_name)
+          .filter(l => l && l !== '（勤務曜日により自動申告）')
+      )];
+      const locationDisplay = submittedLocations.join('、');
+
+      let submission_count = 0;
+      let submission_status = 'not_submitted';
+
+      if (staff.work_days && staff.work_days !== '') {
+        const autoSubmittedDates = generateSubmissionDates(staff.work_days, yearInt, monthInt);
+        submission_count = autoSubmittedDates.length;
         submission_status = 'submitted';
+      } else {
+        submission_count = staffSubmissions.length;
+        if (submission_count > 0) {
+          submission_status = 'submitted';
+        }
       }
-    }
 
-    return {
+      return {
+        facility_name: facilityName,
+        staff_id: staff.staff_id,
+        staff_name: staff.staff_name,
+        positions: staff.positions || [],
+        work_days: staff.work_days || '',
+        break_start: staff.break_start || '',
+        break_end: staff.break_end || '',
+        location: locationDisplay,
+        submission_status,
+        submission_count,
+        submission_dates: staffSubmissions.map(s => s.date),
+        submission_details: submissionDetails
+      };
+    });
+
+    res.json({
+      facility_id: facilityId,
       facility_name: facilityName,
-      staff_id: staff.staff_id,
-      staff_name: staff.staff_name,
-      positions: staff.positions || [],
-      work_days: staff.work_days || '',
-      break_start: staff.break_start || '',
-      break_end: staff.break_end || '',
-      location: locationDisplay,
-      submission_status: submission_status,
-      submission_count: submission_count,
-      submission_dates: submissionDates,
-      submission_details: submissionDetails
-    };
-  });
-
-  res.json({
-    facility_id: facilityId,
-    facility_name: facilityName,
-    year: yearInt,
-    month: monthInt,
-    staffs: summary
-  });
+      year: yearInt,
+      month: monthInt,
+      staffs: summary
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // ========== ダッシュボード：申告追加 ==========
-app.post('/api/dashboard/submissions/add', (req, res) => {
-  const { facility_id, staff_id, date, location_id } = req.body;
+app.post('/api/dashboard/submissions/add', async (req, res) => {
+  try {
+    const { facility_id, staff_id, date, location_id } = req.body;
 
-  if (!facility_id || !staff_id || !date || !location_id) {
-    return res.status(400).json({ error: 'facility_id, staff_id, date, location_id are required' });
+    if (!facility_id || !staff_id || !date || !location_id) {
+      return res.status(400).json({ error: 'facility_id, staff_id, date, location_id are required' });
+    }
+
+    const facilityId = parseInt(facility_id);
+
+    const { data: staff, error: staffError } = await supabase
+      .from('staffs')
+      .select('staff_id')
+      .eq('staff_id', staff_id)
+      .eq('facility_id', facilityId)
+      .single();
+
+    if (staffError) {
+      return res.status(404).json({ error: 'Staff not found' });
+    }
+
+    const { data: location } = await supabase
+      .from('locations')
+      .select('location_name')
+      .eq('location_id', parseInt(location_id))
+      .single();
+
+    const locationName = location?.location_name || '';
+
+    // 重複チェック
+    const { data: existing } = await supabase
+      .from('submissions')
+      .select('submission_id')
+      .eq('staff_id', staff_id)
+      .eq('date', date)
+      .eq('facility_id', facilityId);
+
+    if (existing && existing.length > 0) {
+      return res.status(400).json({ error: '同じ日に申告済みです。複数の棟での勤務は出来ません。' });
+    }
+
+    const { data: submission, error } = await supabase
+      .from('submissions')
+      .insert({
+        staff_id,
+        facility_id: facilityId,
+        date,
+        location_id: parseInt(location_id),
+        location_name: locationName,
+        submitted_at: new Date().toISOString(),
+        type: 'manual'
+      })
+      .select();
+
+    if (error) throw error;
+
+    res.status(201).json({
+      message: 'Submission added',
+      submission: submission[0]
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
-
-  const facilityId = parseInt(facility_id);
-  const staff = db.staffs[facilityId]?.find(s => s.staff_id === staff_id);
-  if (!staff) {
-    return res.status(404).json({ error: 'Staff not found' });
-  }
-
-  const location = db.locations[facilityId]?.find(l => l.location_id === parseInt(location_id));
-  const locationName = location?.location_name || '';
-
-  const newSubmission = {
-    submission_id: nextSubmissionId++,
-    staff_id,
-    facility_id: facilityId,
-    date,
-    location_id: parseInt(location_id),
-    location_name: locationName,
-    submitted_at: new Date().toISOString(),
-    type: 'manual'
-  };
-
-  if (!db.submissions[facilityId]) {
-    db.submissions[facilityId] = [];
-  }
-
-  // 重複チェック1: 同じスタッフが同じ日に既に申告しているか（別棟含む）
-  const sameStaffSameDay = db.submissions[facilityId].find(
-    s => s.staff_id === staff_id && s.date === date
-  );
-  if (sameStaffSameDay) {
-    return res.status(400).json({ error: '同じ日に申告済みです。複数の棟での勤務は出来ません。' });
-  }
-
-  // 重複チェック2: 同じ日の同じ場所に既に申告しているか
-  const sameDateSameLocation = db.submissions[facilityId].find(
-    s => s.date === date && s.location_id === parseInt(location_id) && s.staff_id === staff_id
-  );
-  if (sameDateSameLocation) {
-    return res.status(400).json({ error: 'この日時の申告は既に存在します。' });
-  }
-
-  db.submissions[facilityId].push(newSubmission);
-  saveDB(db);
-
-  res.status(201).json({
-    message: 'Submission added',
-    submission: newSubmission
-  });
 });
 
 // ========== ダッシュボード：申告削除 ==========
-app.delete('/api/dashboard/submissions/:submissionId', (req, res) => {
-  const submissionId = parseInt(req.params.submissionId);
+app.delete('/api/dashboard/submissions/:submissionId', async (req, res) => {
+  try {
+    const submissionId = parseInt(req.params.submissionId);
 
-  for (const facilityId in db.submissions) {
-    const index = db.submissions[facilityId].findIndex(s => s.submission_id === submissionId);
-    if (index !== -1) {
-      const deleted = db.submissions[facilityId].splice(index, 1)[0];
-      saveDB(db);
-      return res.json({ message: 'Submission deleted', deleted });
+    const { data: submission, error: getError } = await supabase
+      .from('submissions')
+      .select('*')
+      .eq('submission_id', submissionId)
+      .single();
+
+    if (getError) {
+      return res.status(404).json({ error: 'Submission not found' });
     }
-  }
 
-  res.status(404).json({ error: 'Submission not found' });
+    const { error } = await supabase
+      .from('submissions')
+      .delete()
+      .eq('submission_id', submissionId);
+
+    if (error) throw error;
+
+    res.json({ message: 'Submission deleted', deleted: submission });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // ========== ダッシュボード：申告更新 ==========
-app.put('/api/dashboard/submissions/:submissionId', (req, res) => {
-  const submissionId = parseInt(req.params.submissionId);
-  const { date, location_id } = req.body;
+app.put('/api/dashboard/submissions/:submissionId', async (req, res) => {
+  try {
+    const submissionId = parseInt(req.params.submissionId);
+    const { date, location_id } = req.body;
 
-  for (const facilityId in db.submissions) {
-    const submission = db.submissions[facilityId].find(s => s.submission_id === submissionId);
-    if (submission) {
-      const newDate = date || submission.date;
-      const newLocationId = location_id !== undefined ? location_id : submission.location_id;
+    const { data: submission, error: getError } = await supabase
+      .from('submissions')
+      .select('*')
+      .eq('submission_id', submissionId)
+      .single();
 
-      // 重複チェック1: 同じスタッフが同じ日に既に申告しているか（別棟含む、自分以外）
-      const sameStaffSameDay = db.submissions[facilityId].find(
-        s => s.staff_id === submission.staff_id && s.date === newDate && s.submission_id !== submissionId
-      );
-      if (sameStaffSameDay) {
-        return res.status(400).json({ error: '同じ日に他の申告がある為、修正出来ません。複数の棟での勤務は出来ません。' });
-      }
-
-      // 重複チェック2: 同じ日の同じ場所に既に申告しているか（自分以外）
-      const sameDateSameLocation = db.submissions[facilityId].find(
-        s => s.date === newDate && s.location_id === newLocationId && s.submission_id !== submissionId && s.staff_id === submission.staff_id
-      );
-      if (sameDateSameLocation) {
-        return res.status(400).json({ error: 'この日時の申告は既に存在します。' });
-      }
-
-      if (date) {
-        submission.date = date;
-      }
-      if (location_id !== undefined) {
-        const location = db.locations[facilityId]?.find(l => l.location_id === location_id);
-        submission.location_id = location_id;
-        submission.location_name = location?.location_name || '';
-      }
-      submission.updated_at = new Date().toISOString();
-      saveDB(db);
-      return res.json({ message: 'Submission updated', submission });
+    if (getError) {
+      return res.status(404).json({ error: 'Submission not found' });
     }
-  }
 
-  res.status(404).json({ error: 'Submission not found' });
+    const newDate = date || submission.date;
+    const newLocationId = location_id !== undefined ? location_id : submission.location_id;
+
+    // 重複チェック
+    const { data: existing } = await supabase
+      .from('submissions')
+      .select('submission_id')
+      .eq('staff_id', submission.staff_id)
+      .eq('date', newDate)
+      .eq('facility_id', submission.facility_id)
+      .neq('submission_id', submissionId);
+
+    if (existing && existing.length > 0) {
+      return res.status(400).json({ error: '同じ日に他の申告がある為、修正出来ません。複数の棟での勤務は出来ません。' });
+    }
+
+    let locationName = submission.location_name;
+    if (location_id !== undefined) {
+      const { data: location } = await supabase
+        .from('locations')
+        .select('location_name')
+        .eq('location_id', location_id)
+        .single();
+      locationName = location?.location_name || '';
+    }
+
+    const { data: updated, error } = await supabase
+      .from('submissions')
+      .update({
+        date: newDate,
+        location_id: newLocationId,
+        location_name: locationName,
+        updated_at: new Date().toISOString()
+      })
+      .eq('submission_id', submissionId)
+      .select();
+
+    if (error) throw error;
+
+    res.json({ message: 'Submission updated', submission: updated[0] });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // ========== Phase 4：シフト取得 ==========
-app.get('/api/phase4/shifts/get', (req, res) => {
-  const { facility_id, year, month } = req.query;
-  const facilityId = parseInt(facility_id);
-  const shiftKey = `${year}-${String(month).padStart(2, '0')}`;
+app.get('/api/phase4/shifts/get', async (req, res) => {
+  try {
+    const { facility_id, year, month } = req.query;
+    const facilityId = parseInt(facility_id);
 
-  console.log(`[GET /api/phase4/shifts/get] ${shiftKey} のシフトを取得`);
+    console.log(`[GET /api/phase4/shifts/get] ${year}-${String(month).padStart(2, '0')} のシフトを取得`);
 
-  const shifts = db.shifts?.[facilityId] || [];
-  const shift = shifts.find(s => s.key === shiftKey);
+    const { data: shift, error } = await supabase
+      .from('shifts')
+      .select('*')
+      .eq('facility_id', facilityId)
+      .eq('year', parseInt(year))
+      .eq('month', parseInt(month))
+      .single();
 
-  if (shift) {
-    res.json({
-      message: 'Shift found',
-      facility_id: facilityId,
-      year: year,
-      month: month,
-      edits: shift.edits,
-      saved_at: shift.saved_at
-    });
-  } else {
-    res.status(404).json({
-      message: 'No saved shift',
-      facility_id: facilityId,
-      year: year,
-      month: month
-    });
+    if (error && error.code !== 'PGRST116') {
+      throw error;
+    }
+
+    if (shift) {
+      res.json({
+        message: 'Shift found',
+        facility_id: facilityId,
+        year: year,
+        month: month,
+        edits: shift.edits,
+        saved_at: shift.saved_at
+      });
+    } else {
+      res.status(404).json({
+        message: 'No saved shift',
+        facility_id: facilityId,
+        year: year,
+        month: month
+      });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 
 // ========== Phase 4：シフト保存 ==========
-app.post('/api/phase4/shifts/save', (req, res) => {
-  console.log('[POST /api/phase4/shifts/save] リクエスト受信:', req.body);
-  const { facility_id, year, month, edits } = req.body;
+app.post('/api/phase4/shifts/save', async (req, res) => {
+  try {
+    console.log('[POST /api/phase4/shifts/save] リクエスト受信:', req.body);
+    const { facility_id, year, month, edits } = req.body;
 
-  if (!facility_id || !year || !month || !edits) {
-    console.log('[POST /api/phase4/shifts/save] バリデーションエラー');
-    return res.status(400).json({ error: 'facility_id, year, month, edits are required' });
+    if (!facility_id || !year || !month || !edits) {
+      console.log('[POST /api/phase4/shifts/save] バリデーションエラー');
+      return res.status(400).json({ error: 'facility_id, year, month, edits are required' });
+    }
+
+    const facilityId = parseInt(facility_id);
+    const yearInt = parseInt(year);
+    const monthInt = parseInt(month);
+
+    // Check if shift already exists
+    const { data: existing } = await supabase
+      .from('shifts')
+      .select('shift_id')
+      .eq('facility_id', facilityId)
+      .eq('year', yearInt)
+      .eq('month', monthInt)
+      .single();
+
+    const shiftData = {
+      facility_id: facilityId,
+      year: yearInt,
+      month: monthInt,
+      edits: edits,
+      saved_at: new Date().toISOString()
+    };
+
+    let result;
+    if (existing) {
+      // Update existing shift
+      const { data, error } = await supabase
+        .from('shifts')
+        .update(shiftData)
+        .eq('facility_id', facilityId)
+        .eq('year', yearInt)
+        .eq('month', monthInt)
+        .select();
+
+      if (error) throw error;
+      result = data;
+    } else {
+      // Insert new shift
+      const { data, error } = await supabase
+        .from('shifts')
+        .insert(shiftData)
+        .select();
+
+      if (error) throw error;
+      result = data;
+    }
+
+    res.status(200).json({
+      message: 'Shift saved successfully',
+      facility_id: facilityId,
+      year: yearInt,
+      month: monthInt,
+      edits_count: Object.keys(edits).length
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
-
-  // shifts テーブルを初期化
-  if (!db.shifts) {
-    db.shifts = {};
-  }
-  if (!db.shifts[facility_id]) {
-    db.shifts[facility_id] = [];
-  }
-
-  const shiftKey = `${year}-${String(month).padStart(2, '0')}`;
-  const existingIndex = db.shifts[facility_id].findIndex(s => s.key === shiftKey);
-
-  const shiftData = {
-    key: shiftKey,
-    facility_id: facility_id,
-    year: year,
-    month: month,
-    edits: edits,
-    saved_at: new Date().toISOString()
-  };
-
-  if (existingIndex !== -1) {
-    db.shifts[facility_id][existingIndex] = shiftData;
-  } else {
-    db.shifts[facility_id].push(shiftData);
-  }
-
-  saveDB(db);
-
-  res.status(200).json({
-    message: 'Shift saved successfully',
-    facility_id: facility_id,
-    year: year,
-    month: month,
-    edits_count: Object.keys(edits).length
-  });
 });
 
 const PORT = 8000;

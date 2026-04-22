@@ -24,6 +24,7 @@ export default function Phase4() {
   const [staffSummaryEdits, setStaffSummaryEdits] = useState({});
   const [shiftEdits, setShiftEdits] = useState({});
   const [editingKey, setEditingKey] = useState(null);
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
 
   useEffect(() => {
     const fetchCorporations = async () => {
@@ -106,6 +107,17 @@ export default function Phase4() {
 
             generateShiftTable(dashboardResponse.data.staffs || [], selectedYear, parseInt(selectedMonth));
             setShiftEdits(shiftResponse.data.edits);
+
+            // 保存済み edits を反映してエラーを再判定
+            setTimeout(() => {
+              setShiftTable(prev => {
+                if (prev) {
+                  const newErrors = recalculateErrors(prev, shiftResponse.data.edits);
+                  return { ...prev, errors: newErrors };
+                }
+                return prev;
+              });
+            }, 0);
           }
         } catch (error) {
           // 保存済みシフトがない場合は何もしない
@@ -145,11 +157,122 @@ export default function Phase4() {
     }
   };
 
+  // 修正後のアラート判定
+  const recalculateErrors = (currentShiftTable, currentEdits) => {
+    const newErrors = [];
+    const dayStartMap = JSON.parse(JSON.stringify(currentShiftTable.dayStartMap || {}));
+
+    // dayStartMap を currentEdits で更新
+    Object.entries(currentEdits).forEach(([editKey, editValue]) => {
+      const parsedValue = parseFloat(editValue) || 0;
+
+      // editKey の形式: day_staffLocationKey_YYYY-MM-DD または night_staffLocationKey_YYYY-MM-DD
+      let type, dateStr, staffLocationKey;
+      if (editKey.startsWith('day_')) {
+        type = 'day';
+        const rest = editKey.slice(4); // 'day_' を削除
+        const lastIndex = rest.lastIndexOf('_');
+        staffLocationKey = rest.substring(0, lastIndex);
+        dateStr = rest.substring(lastIndex + 1);
+      } else if (editKey.startsWith('night_')) {
+        type = 'night';
+        const rest = editKey.slice(6); // 'night_' を削除
+        const lastIndex = rest.lastIndexOf('_');
+        staffLocationKey = rest.substring(0, lastIndex);
+        dateStr = rest.substring(lastIndex + 1);
+      }
+
+      if (dayStartMap[dateStr] && dayStartMap[dateStr][staffLocationKey]) {
+        if (type === 'day') {
+          dayStartMap[dateStr][staffLocationKey].dayShift = parsedValue;
+        } else if (type === 'night') {
+          dayStartMap[dateStr][staffLocationKey].nightShift = parsedValue;
+        }
+      }
+    });
+
+    // 更新された dayStartMap でエラー判定
+    Object.entries(dayStartMap).forEach(([dateStr, dayData]) => {
+      const staffLocations = {};
+      Object.entries(dayData).forEach(([staffLocationKey, data]) => {
+        const staffId = data.staff_id;
+        const location = data.location;
+        const nightShiftHours = data.nightShift || 0;
+        if (nightShiftHours > 0 && location !== '-') {
+          if (!staffLocations[staffId]) {
+            staffLocations[staffId] = new Set();
+          }
+          staffLocations[staffId].add(location);
+        }
+      });
+
+      Object.entries(staffLocations).forEach(([staffId, locationsSet]) => {
+        const uniqueLocations = Array.from(locationsSet);
+        if (uniqueLocations.length > 1) {
+          const staffLocationKey = `${staffId}_${uniqueLocations[0]}`;
+          const staffInfo = currentShiftTable.staffLocationMap?.[staffLocationKey];
+          const isNightShift = staffInfo?.positions?.some(p => p.position === '夜間世話人');
+
+          if (isNightShift) {
+            const staffName = staffInfo?.staff_name || `スタッフ${staffId}`;
+            newErrors.push({
+              date: dateStr,
+              staffName: staffName,
+              locations: uniqueLocations,
+              message: `${staffName}は${dateStr}に複数拠点での勤務があります`
+            });
+          }
+        }
+      });
+
+      // ②同じ拠点で複数人の夜間世話人が勤務している場合のエラー判定
+      const locationStaffs = {};
+      Object.entries(dayData).forEach(([staffLocationKey, data]) => {
+        const staffId = data.staff_id;
+        const location = data.location;
+        const nightShiftHours = data.nightShift || 0;
+        if (nightShiftHours > 0 && location !== '-') {
+          if (!locationStaffs[location]) {
+            locationStaffs[location] = new Set();
+          }
+          locationStaffs[location].add(staffId);
+        }
+      });
+
+      Object.entries(locationStaffs).forEach(([location, staffIds]) => {
+        const uniqueStaffIds = Array.from(staffIds);
+        if (uniqueStaffIds.length > 1) {
+          const staffInfo = Array.from(staffIds).map(id => {
+            const key = Object.keys(currentShiftTable.staffLocationMap || {}).find(k => currentShiftTable.staffLocationMap[k].staff_id === parseInt(id) && currentShiftTable.staffLocationMap[k].location === location);
+            return currentShiftTable.staffLocationMap?.[key]?.positions?.some(p => p.position === '夜間世話人') ? id : null;
+          }).filter(Boolean);
+
+          if (staffInfo.length > 1) {
+            newErrors.push({
+              date: dateStr,
+              location: location,
+              staffCount: uniqueStaffIds.length,
+              message: `${location}は${dateStr}に${uniqueStaffIds.length}人が勤務しています（1人のみ）`
+            });
+          }
+        }
+      });
+    });
+
+    return newErrors;
+  };
+
   const handleSaveShift = async () => {
     if (!selectedFacility || Object.keys(shiftEdits).length === 0) {
       alert('修正内容がありません');
       return;
     }
+
+    setShowConfirmDialog(true);
+  };
+
+  const confirmSaveShift = async () => {
+    setShowConfirmDialog(false);
 
     try {
       await axios.post(`${API_BASE_URL}/phase4/shifts/save`, {
@@ -160,30 +283,118 @@ export default function Phase4() {
       });
 
       // 保存後、編集値をシフト表に反映させる
-      const updatedShiftTable = { ...shiftTable };
+      const updatedShiftTable = {
+        ...shiftTable,
+        dayStartMap: JSON.parse(JSON.stringify(shiftTable.dayStartMap))
+      };
       Object.entries(shiftEdits).forEach(([editKey, value]) => {
         const parsedValue = parseFloat(value) || 0;
-        // dayStartMap の値を更新（実際のシフト表データを変更）
-        Object.entries(updatedShiftTable.dayStartMap || {}).forEach(([date, dayData]) => {
-          Object.entries(dayData).forEach(([key, data]) => {
-            if (editKey.includes(date) && editKey.includes(key)) {
-              if (editKey.startsWith('day_')) {
-                data.dayShift = parsedValue;
-              } else if (editKey.startsWith('night_')) {
-                data.nightShift = parsedValue;
-              }
-            }
-          });
-        });
+
+        // editKey の形式: day_staffLocationKey_YYYY-MM-DD または night_staffLocationKey_YYYY-MM-DD
+        let type, dateStr, staffLocationKey;
+        if (editKey.startsWith('day_')) {
+          type = 'day';
+          const rest = editKey.slice(4);
+          const lastIndex = rest.lastIndexOf('_');
+          staffLocationKey = rest.substring(0, lastIndex);
+          dateStr = rest.substring(lastIndex + 1);
+        } else if (editKey.startsWith('night_')) {
+          type = 'night';
+          const rest = editKey.slice(6);
+          const lastIndex = rest.lastIndexOf('_');
+          staffLocationKey = rest.substring(0, lastIndex);
+          dateStr = rest.substring(lastIndex + 1);
+        }
+
+        if (updatedShiftTable.dayStartMap[dateStr] && updatedShiftTable.dayStartMap[dateStr][staffLocationKey]) {
+          if (type === 'day') {
+            updatedShiftTable.dayStartMap[dateStr][staffLocationKey].dayShift = parsedValue;
+          } else if (type === 'night') {
+            updatedShiftTable.dayStartMap[dateStr][staffLocationKey].nightShift = parsedValue;
+          }
+        }
       });
 
+      // 保存後のデータを基にエラーを再判定
+      const newErrors = [];
+      Object.entries(updatedShiftTable.dayStartMap).forEach(([dateStr, dayData]) => {
+        const staffLocations = {};
+        Object.entries(dayData).forEach(([staffLocationKey, data]) => {
+          const staffId = data.staff_id;
+          const location = data.location;
+          const nightShiftHours = data.nightShift || 0;
+          if (nightShiftHours > 0 && location !== '-') {
+            if (!staffLocations[staffId]) {
+              staffLocations[staffId] = new Set();
+            }
+            staffLocations[staffId].add(location);
+          }
+        });
+
+        Object.entries(staffLocations).forEach(([staffId, locationsSet]) => {
+          const uniqueLocations = Array.from(locationsSet);
+          if (uniqueLocations.length > 1) {
+            const staffLocationKey = `${staffId}_${uniqueLocations[0]}`;
+            const staffInfo = updatedShiftTable.staffLocationMap?.[staffLocationKey];
+            const isNightShift = staffInfo?.positions?.some(p => p.position === '夜間世話人');
+
+            if (isNightShift) {
+              const staffName = staffInfo?.staff_name || `スタッフ${staffId}`;
+              newErrors.push({
+                date: dateStr,
+                staffName: staffName,
+                locations: uniqueLocations,
+                message: `${staffName}は${dateStr}に複数拠点での勤務があります`
+              });
+            }
+          }
+        });
+
+        // ②同じ拠点で複数人の夜間世話人が勤務している場合のエラー判定
+        const locationStaffs = {};
+        Object.entries(dayData).forEach(([staffLocationKey, data]) => {
+          const staffId = data.staff_id;
+          const location = data.location;
+          const nightShiftHours = data.nightShift || 0;
+          if (nightShiftHours > 0 && location !== '-') {
+            if (!locationStaffs[location]) {
+              locationStaffs[location] = new Set();
+            }
+            locationStaffs[location].add(staffId);
+          }
+        });
+
+        Object.entries(locationStaffs).forEach(([location, staffIds]) => {
+          const uniqueStaffIds = Array.from(staffIds);
+          if (uniqueStaffIds.length > 1) {
+            const staffInfo = Array.from(staffIds).map(id => {
+              const key = Object.keys(updatedShiftTable.staffLocationMap || {}).find(k => updatedShiftTable.staffLocationMap[k].staff_id === parseInt(id) && updatedShiftTable.staffLocationMap[k].location === location);
+              return updatedShiftTable.staffLocationMap?.[key]?.positions?.some(p => p.position === '夜間世話人') ? id : null;
+            }).filter(Boolean);
+
+            if (staffInfo.length > 1) {
+              newErrors.push({
+                date: dateStr,
+                location: location,
+                staffCount: uniqueStaffIds.length,
+                message: `${location}は${dateStr}に${uniqueStaffIds.length}人が勤務しています（1人のみ）`
+              });
+            }
+          }
+        });
+      });
+      updatedShiftTable.errors = newErrors;
+
       setShiftTable(updatedShiftTable);
-      alert('シフトを保存しました');
       // shiftEdits は保持してクリアしない（編集データは保持）
     } catch (error) {
       console.error('シフト保存エラー:', error);
       alert('シフト保存に失敗しました');
     }
+  };
+
+  const cancelSaveShift = () => {
+    setShowConfirmDialog(false);
   };
 
   // 曜日マップ
@@ -359,6 +570,75 @@ export default function Phase4() {
       }
     });
 
+    // エラー判定：申告データ（修正前）を基に判定
+    const errors = [];
+    Object.entries(dayStartMap).forEach(([dateStr, dayData]) => {
+      const staffLocations = {};
+      Object.entries(dayData).forEach(([staffLocationKey, data]) => {
+        const staffId = data.staff_id;
+        const location = data.location;
+        const nightShiftHours = data.nightShift || 0;
+        if (nightShiftHours > 0 && location !== '-') {
+          if (!staffLocations[staffId]) {
+            staffLocations[staffId] = new Set();
+          }
+          staffLocations[staffId].add(location);
+        }
+      });
+
+      Object.entries(staffLocations).forEach(([staffId, locationsSet]) => {
+        const uniqueLocations = Array.from(locationsSet);
+        if (uniqueLocations.length > 1) {
+          const staffLocationKey = `${staffId}_${uniqueLocations[0]}`;
+          const staffInfo = staffLocationMap[staffLocationKey];
+          const isNightShift = staffInfo?.positions?.some(p => p.position === '夜間世話人');
+
+          if (isNightShift) {
+            const staffName = staffInfo?.staff_name || `スタッフ${staffId}`;
+            errors.push({
+              date: dateStr,
+              staffName: staffName,
+              locations: uniqueLocations,
+              message: `${staffName}は${dateStr}に複数拠点での勤務があります`
+            });
+          }
+        }
+      });
+
+      // ②同じ拠点で複数人の夜間世話人が勤務している場合のエラー判定
+      const locationStaffs = {};
+      Object.entries(dayData).forEach(([staffLocationKey, data]) => {
+        const staffId = data.staff_id;
+        const location = data.location;
+        const nightShiftHours = data.nightShift || 0;
+        if (nightShiftHours > 0 && location !== '-') {
+          if (!locationStaffs[location]) {
+            locationStaffs[location] = new Set();
+          }
+          locationStaffs[location].add(staffId);
+        }
+      });
+
+      Object.entries(locationStaffs).forEach(([location, staffIds]) => {
+        const uniqueStaffIds = Array.from(staffIds);
+        if (uniqueStaffIds.length > 1) {
+          const staffInfo = Array.from(staffIds).map(id => {
+            const key = Object.keys(staffLocationMap).find(k => staffLocationMap[k].staff_id === parseInt(id) && staffLocationMap[k].location === location);
+            return staffLocationMap[key]?.positions?.some(p => p.position === '夜間世話人') ? id : null;
+          }).filter(Boolean);
+
+          if (staffInfo.length > 1) {
+            errors.push({
+              date: dateStr,
+              location: location,
+              staffCount: uniqueStaffIds.length,
+              message: `${location}は${dateStr}に${uniqueStaffIds.length}人が勤務しています（1人のみ）`
+            });
+          }
+        }
+      });
+    });
+
     // スタッフ別・月別の合計時間を計算（1～28日分のみ）
     const staffMonthlySummary = {};
     Object.entries(dayStartMap).forEach(([dateStr, dayData]) => {
@@ -386,7 +666,8 @@ export default function Phase4() {
       daysInMonth,
       dayStartMap,
       staffLocationMap,
-      staffMonthlySummary
+      staffMonthlySummary,
+      errors: errors
     });
   };
 
@@ -526,6 +807,27 @@ export default function Phase4() {
               <div className="shift-table-section">
                 <h3>【{selectedYear}年{selectedMonth}月 シフト表】</h3>
 
+                {/* エラー表示 */}
+                {shiftTable.errors && shiftTable.errors.length > 0 && (
+                  <div style={{
+                    backgroundColor: '#ffebee',
+                    border: '2px solid #f44336',
+                    borderRadius: '8px',
+                    padding: '15px',
+                    marginBottom: '20px',
+                    color: '#c62828'
+                  }}>
+                    <h4 style={{ margin: '0 0 10px 0', color: '#c62828' }}>⚠️ エラーを修正してください</h4>
+                    <ul style={{ margin: '0', paddingLeft: '20px' }}>
+                      {shiftTable.errors.map((error, idx) => (
+                        <li key={idx} style={{ marginBottom: '5px' }}>
+                          {error.message}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
                 {/* 日勤セクション */}
                 <h4 style={{ marginTop: '30px', marginBottom: '15px', fontSize: '16px', fontWeight: 'bold' }}>【ゆうみのいえ日勤】</h4>
                 <div className="shift-table-wrapper">
@@ -596,11 +898,33 @@ export default function Phase4() {
                                       <input
                                         type="number"
                                         step="0.5"
+                                        min="0"
+                                        max="8"
                                         value={displayValue}
-                                        onChange={(e) => setShiftEdits(prev => ({ ...prev, [editKey]: e.target.value }))}
+                                        onChange={(e) => {
+                                          let value = e.target.value;
+                                          if (value === '') {
+                                            const newEdits = { ...shiftEdits, [editKey]: '' };
+                                            setShiftEdits(newEdits);
+                                            return;
+                                          }
+                                          let numValue = parseFloat(value);
+                                          if (isNaN(numValue)) {
+                                            return;
+                                          }
+                                          if (numValue < 0) numValue = 0;
+                                          if (numValue > 8) numValue = 8;
+                                          value = numValue.toString();
+                                          const newEdits = { ...shiftEdits, [editKey]: value };
+                                          setShiftEdits(newEdits);
+                                          const newErrors = recalculateErrors(shiftTable, newEdits);
+                                          setShiftTable(prev => ({ ...prev, errors: newErrors }));
+                                        }}
                                         onBlur={() => setEditingKey(null)}
                                         autoFocus
-                                        style={{ width: '50px', textAlign: 'center', border: '1px solid #0066cc', padding: '4px' }}
+                                        onFocus={(e) => e.target.select()}
+                                        style={{ width: '50px', textAlign: 'center', border: '1px solid #0066cc', padding: '4px', MozAppearance: 'textfield' }}
+                                        onWheel={(e) => e.preventDefault()}
                                       />
                                     ) : (
                                       displayValue > 0 ? displayValue : ''
@@ -671,21 +995,18 @@ export default function Phase4() {
                           })
                           .map(([key, staff]) => staff);
 
-                        const isMultipleStaffs = locationStaffs.length > 1;
-                        const alertColor = isMultipleStaffs ? '#ffcccc' : '#f0f0f0';
-
                         return (
                           <React.Fragment key={location}>
                             <tr className="location-header">
-                              <td colSpan={1 + shiftTable.daysInMonth + 1} style={{ fontWeight: 'bold', backgroundColor: alertColor, padding: '10px', color: isMultipleStaffs ? '#cc0000' : 'inherit' }}>
-                                {location} {isMultipleStaffs && `⚠ ${locationStaffs.length}人`}
+                              <td colSpan={1 + shiftTable.daysInMonth + 1} style={{ fontWeight: 'bold', backgroundColor: '#f0f0f0', padding: '10px' }}>
+                                {location}
                               </td>
                             </tr>
                             {locationStaffs.length > 0 ? (
                               locationStaffs.map((staff) => {
                                 const staffKey = `${staff.staff_id}_${location}`;
                                 return (
-                                  <tr key={staffKey} style={{ backgroundColor: isMultipleStaffs ? '#ffeeee' : 'inherit' }}>
+                                  <tr key={staffKey}>
                                     <td style={{ fontWeight: '600' }}>{staff.staff_name}</td>
                                     {Array.from({ length: shiftTable.daysInMonth }, (_, i) => {
                                       const day = i + 1;
@@ -706,11 +1027,33 @@ export default function Phase4() {
                                             <input
                                               type="number"
                                               step="0.5"
+                                              min="0"
+                                              max="8"
                                               value={displayValue}
-                                              onChange={(e) => setShiftEdits(prev => ({ ...prev, [editKey]: e.target.value }))}
+                                              onChange={(e) => {
+                                                let value = e.target.value;
+                                                if (value === '') {
+                                                  const newEdits = { ...shiftEdits, [editKey]: '' };
+                                                  setShiftEdits(newEdits);
+                                                  return;
+                                                }
+                                                let numValue = parseFloat(value);
+                                                if (isNaN(numValue)) {
+                                                  return;
+                                                }
+                                                if (numValue < 0) numValue = 0;
+                                                if (numValue > 8) numValue = 8;
+                                                value = numValue.toString();
+                                                const newEdits = { ...shiftEdits, [editKey]: value };
+                                                setShiftEdits(newEdits);
+                                                const newErrors = recalculateErrors(shiftTable, newEdits);
+                                                setShiftTable(prev => ({ ...prev, errors: newErrors }));
+                                              }}
                                               onBlur={() => setEditingKey(null)}
                                               autoFocus
-                                              style={{ width: '40px', textAlign: 'center', border: '1px solid #0066cc', padding: '2px' }}
+                                              onFocus={(e) => e.target.select()}
+                                              style={{ width: '40px', textAlign: 'center', border: '1px solid #0066cc', padding: '2px', MozAppearance: 'textfield' }}
+                                              onWheel={(e) => e.preventDefault()}
                                             />
                                           ) : (
                                             displayValue > 0 ? displayValue : ''
@@ -983,6 +1326,63 @@ export default function Phase4() {
               </>
             )}
           </>
+        )}
+
+        {/* 確認ダイアログ */}
+        {showConfirmDialog && (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000
+          }}>
+            <div style={{
+              backgroundColor: 'white',
+              padding: '30px',
+              borderRadius: '8px',
+              boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
+              textAlign: 'center',
+              minWidth: '300px'
+            }}>
+              <h3 style={{ marginTop: 0, marginBottom: '20px', color: '#333' }}>シフトを保存しますか？</h3>
+              <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
+                <button
+                  onClick={confirmSaveShift}
+                  style={{
+                    padding: '10px 30px',
+                    backgroundColor: '#0066cc',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    fontWeight: 'bold'
+                  }}
+                >
+                  はい
+                </button>
+                <button
+                  onClick={cancelSaveShift}
+                  style={{
+                    padding: '10px 30px',
+                    backgroundColor: '#ccc',
+                    color: '#333',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    fontWeight: 'bold'
+                  }}
+                >
+                  いいえ
+                </button>
+              </div>
+            </div>
+          </div>
         )}
       </main>
     </div>
