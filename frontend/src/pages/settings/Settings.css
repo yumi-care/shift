@@ -1,0 +1,180 @@
+:root {
+  --primary-color: #1F3A5F;
+  --primary-dark: #162847;
+}
+
+.settings-container {
+  min-height: 100vh;
+  background-color: #ffffff;
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-main {
+  flex: 1;
+  padding: 40px 20px;
+  max-width: 800px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.settings-content {
+  background-color: white;
+  border-radius: 8px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  padding: 40px;
+  border: 1px solid #e0e0e0;
+}
+
+.settings-content h2 {
+  font-size: 1.8em;
+  color: #333;
+  margin: 0 0 30px 0;
+  font-weight: 700;
+  border-bottom: 2px solid var(--primary-color);
+  padding-bottom: 15px;
+}
+
+.settings-section {
+  margin-bottom: 40px;
+  padding-bottom: 30px;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.settings-section:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.settings-section h3 {
+  font-size: 1.2em;
+  color: #333;
+  margin: 0 0 15px 0;
+  font-weight: 600;
+}
+
+.section-description {
+  color: #666;
+  font-size: 0.95em;
+  margin-bottom: 15px;
+  line-height: 1.5;
+}
+
+.info-group {
+  margin-bottom: 20px;
+  padding: 15px;
+  background-color: #f8f9fa;
+  border-radius: 4px;
+}
+
+.info-group label {
+  display: block;
+  font-weight: 600;
+  color: #333;
+  font-size: 0.9em;
+  margin-bottom: 8px;
+}
+
+.info-group p {
+  margin: 0;
+  color: #666;
+  font-size: 0.95em;
+  word-break: break-word;
+}
+
+/* ボタン */
+.btn-secondary {
+  padding: 12px 24px;
+  background-color: #e9ecef;
+  color: #333;
+  font-size: 0.95em;
+  font-weight: 600;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background-color: #dee2e6;
+  border-color: #999;
+}
+
+.btn-secondary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-logout {
+  padding: 12px 24px;
+  background-color: #dc3545;
+  color: white;
+  font-size: 0.95em;
+  font-weight: 600;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.btn-logout:hover {
+  background-color: #c82333;
+}
+
+.btn-logout:active {
+  background-color: #bd2130;
+}
+
+.danger-zone {
+  background-color: #fff5f5;
+  padding: 20px;
+  border-radius: 4px;
+  border: 1px solid #ffebee;
+}
+
+/* レスポンシブ */
+@media (max-width: 768px) {
+  .settings-main {
+    padding: 20px 15px;
+  }
+
+  .settings-content {
+    padding: 25px;
+  }
+
+  .settings-content h2 {
+    font-size: 1.5em;
+  }
+
+  .settings-section h3 {
+    font-size: 1.1em;
+  }
+}
+
+@media (max-width: 480px) {
+  .settings-main {
+    padding: 15px 10px;
+  }
+
+  .settings-content {
+    padding: 15px;
+  }
+
+  .settings-content h2 {
+    font-size: 1.3em;
+  }
+
+  .settings-section h3 {
+    font-size: 1em;
+  }
+
+  .info-group {
+    padding: 12px;
+  }
+
+  .btn-secondary,
+  .btn-logout {
+    width: 100%;
+  }
+}

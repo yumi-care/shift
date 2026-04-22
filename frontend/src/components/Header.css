@@ -1,0 +1,146 @@
+:root {
+  --primary-color: #1F3A5F;
+  --primary-dark: #162847;
+}
+
+.app-header {
+  background-color: var(--primary-color);
+  color: white;
+  padding: 0;
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.header-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  padding: 15px 20px;
+  max-width: 100%;
+  margin: 0;
+}
+
+.hamburger-menu {
+  background: none;
+  border: none;
+  color: white;
+  font-size: 1.8em;
+  cursor: pointer;
+  padding: 5px 10px;
+  transition: opacity 0.3s ease;
+  flex-shrink: 0;
+}
+
+.hamburger-menu:hover {
+  opacity: 0.8;
+}
+
+.hamburger-menu:active {
+  opacity: 0.9;
+}
+
+.header-title {
+  font-size: 1.5em;
+  font-weight: 700;
+  margin: 0;
+  color: white;
+  flex: 1;
+}
+
+.menu-container {
+  position: relative;
+}
+
+.dropdown-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  background-color: rgba(22, 40, 71, 0.95);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  padding: 8px 0;
+  min-width: 200px;
+  animation: slideDown 0.3s ease-out;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.menu-item {
+  display: block;
+  width: 100%;
+  padding: 12px 20px;
+  background: none;
+  border: none;
+  color: white;
+  text-align: left;
+  font-size: 0.95em;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  font-weight: 500;
+}
+
+.menu-item:hover:not(.disabled) {
+  background-color: rgba(0, 0, 0, 0.2);
+}
+
+.menu-item.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.menu-item.logout {
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
+  color: #ffcccc;
+}
+
+.menu-item.logout:hover {
+  background-color: rgba(220, 53, 69, 0.2);
+}
+
+.menu-section-label {
+  display: block;
+  padding: 8px 20px;
+  font-size: 0.85em;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.7);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  margin-top: 5px;
+}
+
+/* レスポンシブ */
+@media (max-width: 480px) {
+  .header-wrapper {
+    padding: 12px 15px;
+    gap: 10px;
+  }
+
+  .hamburger-menu {
+    font-size: 1.5em;
+  }
+
+  .header-title {
+    font-size: 1.2em;
+  }
+
+  .dropdown-menu {
+    min-width: 180px;
+  }
+
+  .menu-item {
+    padding: 10px 15px;
+    font-size: 0.9em;
+  }
+}
