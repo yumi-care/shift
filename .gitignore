@@ -11,3 +11,4 @@ test_*.js
 .env.local
 dist/
 build/
+.vercel
