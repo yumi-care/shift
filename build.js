@@ -2,13 +2,15 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
+const frontendDir = path.join(__dirname, 'frontend');
+
 // Install frontend dependencies
 console.log('Installing frontend dependencies...');
-execSync('cd frontend && npm install --legacy-peer-deps', { stdio: 'inherit' });
+execSync('npm install --legacy-peer-deps', { cwd: frontendDir, stdio: 'inherit' });
 
 // Build frontend
 console.log('Building frontend...');
-execSync('cd frontend && npm run build', { stdio: 'inherit' });
+execSync('npm run build', { cwd: frontendDir, stdio: 'inherit' });
 
 // Copy to public directory
 const src = 'frontend/dist';
