@@ -2,6 +2,10 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
+// Install frontend dependencies
+console.log('Installing frontend dependencies...');
+execSync('cd frontend && npm install --legacy-peer-deps', { stdio: 'inherit' });
+
 // Build frontend
 console.log('Building frontend...');
 execSync('cd frontend && npm run build', { stdio: 'inherit' });
