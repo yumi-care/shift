@@ -1,6 +1,6 @@
 {
   "scripts": {
-    "build": "cd frontend && npm run build && cd .. && mkdir -p public && cp -r frontend/dist/* public/"
+    "build": "cd frontend && npm run build && cd .. && node -e \"const fs=require('fs'); const path=require('path'); const src='frontend/dist'; const dst='public'; if(!fs.existsSync(dst))fs.mkdirSync(dst,{recursive:true}); fs.readdirSync(src).forEach(f=>{ const s=path.join(src,f); const d=path.join(dst,f); if(fs.statSync(s).isDirectory()) { if(!fs.existsSync(d))fs.mkdirSync(d,{recursive:true}); const copy=(s,d)=>fs.readdirSync(s).forEach(f=>fs.statSync(path.join(s,f)).isDirectory()?copy(path.join(s,f),path.join(d,f)):fs.copyFileSync(path.join(s,f),path.join(d,f))); copy(s,d); } else fs.copyFileSync(s,d); });\""
   },
   "devDependencies": {
     "puppeteer": "^24.41.0"
