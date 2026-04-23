@@ -319,12 +319,6 @@ export default function Phase2() {
     }
   };
 
-  // テストデータ登録（非表示）
-  const registerTestData = async () => {
-    // テストデータ登録機能は削除
-    alert('手動でスタッフを登録してください');
-  };
-
   // ========== レンダリング ==========
   if (loading) {
     return (
@@ -345,17 +339,6 @@ export default function Phase2() {
       </div>
 
       <div className="phase2-main">
-        <div style={{marginBottom: '20px'}}>
-          <button
-            className="btn-back"
-            onClick={registerTestData}
-            style={{backgroundColor: '#28a745', color: 'white'}}
-          >
-            <MdAssignment style={{ marginRight: '8px' }} />
-            テストデータ登録
-          </button>
-        </div>
-
         {/* 法人・事業所選択 */}
         <div className="selector-section">
           <div className="selector-group">
