@@ -9,24 +9,18 @@ import Phase4 from './pages/phase4/index';
 import Settings from './pages/settings/Settings';
 import './App.css';
 
-// ログイン保護コンポーネント
-function ProtectedRoute({ children }) {
-  const isLoggedIn = localStorage.getItem('is_logged_in');
-  return isLoggedIn ? children : <Navigate to="/login" replace />;
-}
-
 export default function App() {
   return (
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<Login />} />
-        <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-        <Route path="/phase1" element={<ProtectedRoute><Phase1 /></ProtectedRoute>} />
-        <Route path="/phase2" element={<ProtectedRoute><Phase2 /></ProtectedRoute>} />
+        <Route path="/" element={<Dashboard />} />
+        <Route path="/phase1" element={<Phase1 />} />
+        <Route path="/phase2" element={<Phase2 />} />
         <Route path="/phase3" element={<Phase3 />} />
-        <Route path="/phase4" element={<ProtectedRoute><Phase4 /></ProtectedRoute>} />
-        <Route path="/phase6" element={<ProtectedRoute><div style={{ padding: '20px', textAlign: 'center' }}>Phase 6: 勤務体制表 - 準備中</div></ProtectedRoute>} />
-        <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+        <Route path="/phase4" element={<Phase4 />} />
+        <Route path="/phase6" element={<div style={{ padding: '20px', textAlign: 'center' }}>Phase 6: 勤務体制表 - 準備中</div>} />
+        <Route path="/settings" element={<Settings />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
