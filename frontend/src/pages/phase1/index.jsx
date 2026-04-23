@@ -10,11 +10,9 @@
 
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import { supabase } from '../../supabase';
 import Header from '../../components/Header';
 import './Phase1.css';
-
-const API_BASE_URL = '/api/phase1';
 
 export default function Phase1() {
   const navigate = useNavigate();
@@ -74,8 +72,9 @@ export default function Phase1() {
 
   const fetchCorporations = async () => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/corporations/`);
-      setCorporations(response.data);
+      const { data, error } = await supabase.from('corporations').select('*');
+      if (error) throw error;
+      setCorporations(data);
     } catch (error) {
       console.error('法人一覧取得エラー:', error);
     }
@@ -83,8 +82,9 @@ export default function Phase1() {
 
   const fetchFacilities = async (corpId) => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/corporations/${corpId}/facilities/`);
-      setFacilities(response.data);
+      const { data, error } = await supabase.from('facilities').select('*').eq('corp_id', corpId);
+      if (error) throw error;
+      setFacilities(data);
     } catch (error) {
       console.error('事業所一覧取得エラー:', error);
     }
@@ -92,8 +92,9 @@ export default function Phase1() {
 
   const fetchLocations = async (facilityId) => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/facilities/${facilityId}/locations/`);
-      setLocations(response.data);
+      const { data, error } = await supabase.from('locations').select('*').eq('facility_id', facilityId);
+      if (error) throw error;
+      setLocations(data);
     } catch (error) {
       console.error('拠点一覧取得エラー:', error);
     }
@@ -111,7 +112,8 @@ export default function Phase1() {
       return;
     }
     try {
-      await axios.delete(`${API_BASE_URL}/corporations/${corpId}`);
+      const { error } = await supabase.from('corporations').delete().eq('corp_id', corpId);
+      if (error) throw error;
       alert('法人を削除しました');
       setTempSelect({ ...tempSelect, corp_id: '' });
       fetchCorporations();
@@ -126,7 +128,8 @@ export default function Phase1() {
       return;
     }
     try {
-      await axios.delete(`${API_BASE_URL}/facilities/${facilityId}`);
+      const { error } = await supabase.from('facilities').delete().eq('facility_id', facilityId);
+      if (error) throw error;
       alert('事業所を削除しました');
       setTempSelect({ ...tempSelect, facility_id: '' });
       fetchFacilities(selected.corp_id);
@@ -141,7 +144,8 @@ export default function Phase1() {
       return;
     }
     try {
-      await axios.delete(`${API_BASE_URL}/locations/${locationId}`);
+      const { error } = await supabase.from('locations').delete().eq('location_id', locationId);
+      if (error) throw error;
       alert('拠点を削除しました');
       setTempSelect({ ...tempSelect, location_id: '' });
       fetchLocations(selected.facility_id);
@@ -179,14 +183,14 @@ export default function Phase1() {
 
   const handleConfirmCreate = async () => {
     try {
-      const dataToSend = {
-        ...confirmData.data,
+      const { data, error } = await supabase.from('corporations').insert({
+        corp_name: confirmData.data.corp_name,
         corp_number: `${Date.now()}`
-      };
-      const response = await axios.post(`${API_BASE_URL}/corporations/`, dataToSend);
+      }).select();
+      if (error) throw error;
       alert('法人を登録しました');
-      setSelected({ ...selected, corp_id: response.data.corp_id });
-      fetchFacilities(response.data.corp_id);
+      setSelected({ ...selected, corp_id: data[0].corp_id });
+      fetchFacilities(data[0].corp_id);
       setFormData({ ...formData, corp_name: '' });
       setShowConfirm(false);
       setStep('facility');
@@ -227,12 +231,13 @@ export default function Phase1() {
 
   const handleConfirmCreateFacility = async () => {
     try {
-      const response = await axios.post(
-        `${API_BASE_URL}/corporations/${selected.corp_id}/facilities/`,
-        { facility_name: confirmData.data.facility_name }
-      );
+      const { data, error } = await supabase.from('facilities').insert({
+        corp_id: selected.corp_id,
+        facility_name: confirmData.data.facility_name
+      }).select();
+      if (error) throw error;
       alert('事業所を登録しました');
-      setSelected({ ...selected, facility_id: response.data.facility_id });
+      setSelected({ ...selected, facility_id: data[0].facility_id });
       setFormData({ ...formData, facility_name: '', department: '', service_type: '' });
       setShowConfirm(false);
       setStep('location');
@@ -251,10 +256,11 @@ export default function Phase1() {
 
   const handleConfirmCreateLocation = async () => {
     try {
-      const response = await axios.post(
-        `${API_BASE_URL}/facilities/${selected.facility_id}/locations/`,
-        { location_name: confirmData.data.location_name }
-      );
+      const { error } = await supabase.from('locations').insert({
+        facility_id: selected.facility_id,
+        location_name: confirmData.data.location_name
+      }).select();
+      if (error) throw error;
       alert('拠点を登録しました');
       setFormData({ ...formData, location_name: '' });
       setShowConfirm(false);
