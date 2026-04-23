@@ -29,7 +29,7 @@ module.exports = async function handler(req, res) {
 
     if (req.method === 'POST') {
       // 法人作成
-      const { corp_name, corp_number } = req.body;
+      const { corp_name } = req.body;
 
       if (!corp_name) {
         return res.status(400).json({ error: '法人名は必須です' });
@@ -37,16 +37,52 @@ module.exports = async function handler(req, res) {
 
       const { data, error } = await supabase
         .from('corporations')
-        .insert([
-          {
-            corp_name,
-            corp_number: corp_number || `corp_${Date.now()}`
-          }
-        ])
+        .insert([{ corp_name }])
         .select();
 
       if (error) throw error;
       return res.status(201).json(data[0]);
+    }
+
+    if (req.method === 'DELETE') {
+      // 法人削除（パターン: DELETE /api/corporations/2）
+      const pathParts = req.url.split('/');
+      const corpId = pathParts[pathParts.length - 1];
+
+      if (!corpId || isNaN(corpId)) {
+        return res.status(400).json({ error: 'corp_id は必須です' });
+      }
+
+      // 関連する facilities を取得
+      const { data: facilities, error: getFacError } = await supabase
+        .from('facilities')
+        .select('facility_id')
+        .eq('corp_id', parseInt(corpId));
+
+      if (getFacError) throw getFacError;
+
+      // 各 facility に関連する locations を削除
+      for (const fac of facilities) {
+        await supabase
+          .from('locations')
+          .delete()
+          .eq('facility_id', fac.facility_id);
+      }
+
+      // facilities を削除
+      await supabase
+        .from('facilities')
+        .delete()
+        .eq('corp_id', parseInt(corpId));
+
+      // corporation を削除
+      const { error } = await supabase
+        .from('corporations')
+        .delete()
+        .eq('corp_id', parseInt(corpId));
+
+      if (error) throw error;
+      return res.status(200).json({ message: '削除完了' });
     }
 
     return res.status(405).json({ error: 'Method not allowed' });
