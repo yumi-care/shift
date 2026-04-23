@@ -5,7 +5,7 @@ import { MdAssignment } from 'react-icons/md';
 import Header from '../../components/Header';
 import './Phase2.css';
 
-const API_BASE_URL = 'https://ohdndxzjjhiqievsjdit.supabase.co/rest/v1';
+const API_BASE_URL = '/api';
 
 export default function Phase2() {
   const navigate = useNavigate();

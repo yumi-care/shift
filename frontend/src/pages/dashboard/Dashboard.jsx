@@ -5,7 +5,7 @@ import { MdArrowForward, MdClose } from 'react-icons/md';
 import Header from '../../components/Header';
 import './Dashboard.css';
 
-const API_BASE_URL = 'https://ohdndxzjjhiqievsjdit.supabase.co/rest/v1';
+const API_BASE_URL = '/api';
 
 export default function Dashboard() {
   const navigate = useNavigate();

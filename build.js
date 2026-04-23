@@ -37,4 +37,11 @@ const copyDir = (source, dest) => {
 };
 
 copyDir(src, dst);
+
+// Copy api directory to public
+console.log('Copying api to public...');
+if (fs.existsSync('api')) {
+  copyDir('api', path.join(dst, 'api'));
+}
+
 console.log('Done!');

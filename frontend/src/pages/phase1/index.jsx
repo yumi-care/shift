@@ -14,7 +14,7 @@ import axios from 'axios';
 import Header from '../../components/Header';
 import './Phase1.css';
 
-const API_BASE_URL = 'https://ohdndxzjjhiqievsjdit.supabase.co/rest/v1';
+const API_BASE_URL = '/api';
 
 export default function Phase1() {
   const navigate = useNavigate();
