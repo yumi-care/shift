@@ -14,7 +14,7 @@ import axios from 'axios';
 import Header from '../../components/Header';
 import './Phase1.css';
 
-const API_BASE_URL = '/api';
+const API_BASE_URL = '/api/phase1';
 
 export default function Phase1() {
   const navigate = useNavigate();
@@ -83,7 +83,7 @@ export default function Phase1() {
 
   const fetchFacilities = async (corpId) => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/corporations/${corpId}/facilities`);
+      const response = await axios.get(`${API_BASE_URL}/corporations/${corpId}/facilities/`);
       setFacilities(response.data);
     } catch (error) {
       console.error('事業所一覧取得エラー:', error);
@@ -92,7 +92,7 @@ export default function Phase1() {
 
   const fetchLocations = async (facilityId) => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/facilities/${facilityId}/locations`);
+      const response = await axios.get(`${API_BASE_URL}/facilities/${facilityId}/locations/`);
       setLocations(response.data);
     } catch (error) {
       console.error('拠点一覧取得エラー:', error);
@@ -126,7 +126,7 @@ export default function Phase1() {
       return;
     }
     try {
-      await axios.delete(`${API_BASE_URL}/facilities${facilityId}?corp_id=${selected.corp_id}`);
+      await axios.delete(`${API_BASE_URL}/facilities/${facilityId}`);
       alert('事業所を削除しました');
       setTempSelect({ ...tempSelect, facility_id: '' });
       fetchFacilities(selected.corp_id);
@@ -141,7 +141,7 @@ export default function Phase1() {
       return;
     }
     try {
-      await axios.delete(`${API_BASE_URL}/locations${locationId}`);
+      await axios.delete(`${API_BASE_URL}/locations/${locationId}`);
       alert('拠点を削除しました');
       setTempSelect({ ...tempSelect, location_id: '' });
       fetchLocations(selected.facility_id);
@@ -228,7 +228,7 @@ export default function Phase1() {
   const handleConfirmCreateFacility = async () => {
     try {
       const response = await axios.post(
-        `${API_BASE_URL}/corporations/${selected.corp_id}/facilities`,
+        `${API_BASE_URL}/corporations/${selected.corp_id}/facilities/`,
         { facility_name: confirmData.data.facility_name }
       );
       alert('事業所を登録しました');
@@ -252,7 +252,7 @@ export default function Phase1() {
   const handleConfirmCreateLocation = async () => {
     try {
       const response = await axios.post(
-        `${API_BASE_URL}/facilities${selected.facility_id}/locations`,
+        `${API_BASE_URL}/facilities/${selected.facility_id}/locations/`,
         { location_name: confirmData.data.location_name }
       );
       alert('拠点を登録しました');
