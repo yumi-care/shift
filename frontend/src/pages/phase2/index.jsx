@@ -1,11 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import { supabase } from '../../supabase';
 import { MdAssignment } from 'react-icons/md';
 import Header from '../../components/Header';
 import './Phase2.css';
-
-const API_BASE_URL = '/api';
 
 export default function Phase2() {
   const navigate = useNavigate();
@@ -52,8 +50,9 @@ export default function Phase2() {
 
   const fetchCorporations = async () => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/phase1/corporations/`);
-      setCorporations(response.data);
+      const { data, error } = await supabase.from('corporations').select('*');
+      if (error) throw error;
+      setCorporations(data);
       setLoading(false);
     } catch (error) {
       console.error('法人取得エラー:', error);
@@ -63,8 +62,9 @@ export default function Phase2() {
 
   const fetchFacilities = async (corpId) => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/phase1/corporations/${corpId}/facilities`);
-      setFacilities(response.data);
+      const { data, error } = await supabase.from('facilities').select('*').eq('corp_id', corpId);
+      if (error) throw error;
+      setFacilities(data);
       setSelectedFacility('');
       setStaffs([]);
     } catch (error) {
@@ -74,8 +74,9 @@ export default function Phase2() {
 
   const fetchLocations = async (facilityId) => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/phase1/facilities${facilityId}/locations`);
-      setLocations(response.data);
+      const { data, error } = await supabase.from('locations').select('*').eq('facility_id', facilityId);
+      if (error) throw error;
+      setLocations(data);
     } catch (error) {
       console.error('拠点取得エラー:', error);
     }
@@ -83,8 +84,9 @@ export default function Phase2() {
 
   const fetchStaffs = async (facilityId) => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/phase2/facilities${facilityId}/staffs`);
-      setStaffs(response.data);
+      const { data, error } = await supabase.from('staffs').select('*').eq('facility_id', facilityId);
+      if (error) throw error;
+      setStaffs(data);
     } catch (error) {
       console.error('スタッフ取得エラー:', error);
       setStaffs([]);
@@ -195,17 +197,16 @@ export default function Phase2() {
         work_hours_end: ph.end
       }));
 
-      const response = await axios.post(
-        `${API_BASE_URL}/phase2/facilities${selectedFacility}/staffs`,
-        {
-          staff_name: formData.staff_name,
-          positions: positions,
-          work_days: formData.employment_type === 'fixed' ? formData.work_days.join('') : '',
-          break_start: formData.break_start,
-          break_end: formData.break_end
-        }
-      );
+      const { error } = await supabase.from('staffs').insert({
+        facility_id: selectedFacility,
+        staff_name: formData.staff_name,
+        positions: positions,
+        work_days: formData.employment_type === 'fixed' ? formData.work_days.join('') : '',
+        break_start: formData.break_start,
+        break_end: formData.break_end
+      });
 
+      if (error) throw error;
       alert('スタッフを登録しました');
       setFormData({
         staff_name: '',
@@ -262,17 +263,15 @@ export default function Phase2() {
         work_hours_end: ph.end
       }));
 
-      await axios.put(
-        `${API_BASE_URL}/phase2/staffs/${editingStaffId}`,
-        {
-          staff_name: formData.staff_name,
-          positions: positions,
-          work_days: formData.employment_type === 'fixed' ? formData.work_days.join('') : '',
-          break_start: formData.break_start,
-          break_end: formData.break_end
-        }
-      );
+      const { error } = await supabase.from('staffs').update({
+        staff_name: formData.staff_name,
+        positions: positions,
+        work_days: formData.employment_type === 'fixed' ? formData.work_days.join('') : '',
+        break_start: formData.break_start,
+        break_end: formData.break_end
+      }).eq('staff_id', editingStaffId);
 
+      if (error) throw error;
       setEditingStaffId(null);
       setFormData({
         staff_name: '',
@@ -310,7 +309,8 @@ export default function Phase2() {
     }
 
     try {
-      await axios.delete(`${API_BASE_URL}/phase2/staffs/${staffId}`);
+      const { error } = await supabase.from('staffs').delete().eq('staff_id', staffId);
+      if (error) throw error;
       alert('スタッフを削除しました');
       await fetchStaffs(selectedFacility);
     } catch (error) {

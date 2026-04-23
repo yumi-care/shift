@@ -183,16 +183,14 @@ export default function Phase1() {
 
   const handleConfirmCreate = async () => {
     try {
-      const { data, error } = await supabase.from('corporations').insert({
-        corp_name: confirmData.data.corp_name,
-        corp_number: `${Date.now()}`
-      }).select();
+      const { error } = await supabase.from('corporations').insert({
+        corp_name: confirmData.data.corp_name
+      });
       if (error) throw error;
       alert('法人を登録しました');
-      setSelected({ ...selected, corp_id: data[0].corp_id });
-      fetchFacilities(data[0].corp_id);
       setFormData({ ...formData, corp_name: '' });
       setShowConfirm(false);
+      await fetchCorporations();
       setStep('facility');
     } catch (error) {
       console.error('法人作成エラー:', error);
@@ -231,15 +229,15 @@ export default function Phase1() {
 
   const handleConfirmCreateFacility = async () => {
     try {
-      const { data, error } = await supabase.from('facilities').insert({
+      const { error } = await supabase.from('facilities').insert({
         corp_id: selected.corp_id,
         facility_name: confirmData.data.facility_name
-      }).select();
+      });
       if (error) throw error;
       alert('事業所を登録しました');
-      setSelected({ ...selected, facility_id: data[0].facility_id });
       setFormData({ ...formData, facility_name: '', department: '', service_type: '' });
       setShowConfirm(false);
+      await fetchFacilities(selected.corp_id);
       setStep('location');
     } catch (error) {
       console.error('事業所作成エラー:', error);
@@ -259,12 +257,12 @@ export default function Phase1() {
       const { error } = await supabase.from('locations').insert({
         facility_id: selected.facility_id,
         location_name: confirmData.data.location_name
-      }).select();
+      });
       if (error) throw error;
       alert('拠点を登録しました');
       setFormData({ ...formData, location_name: '' });
       setShowConfirm(false);
-      fetchLocations(selected.facility_id);
+      await fetchLocations(selected.facility_id);
     } catch (error) {
       console.error('拠点作成エラー:', error);
       alert('拠点の作成に失敗しました');
