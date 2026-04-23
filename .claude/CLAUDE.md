@@ -14,7 +14,7 @@
 ### フェーズ分割
 6つのフェーズに分割し、段階的に実装。各フェーズ完成後に実際に操作して「打感」で修正。
 
-**Phase 1：事業所登録** → Phase 2：スタッフ登録 → Phase 3：シフト提出 → Phase 4：シフト表作成・確認 → Phase 5：実勤怠連携 → Phase 6：勤務体制表生成
+**Phase 1：法人・事業所・拠点登録（3つがセット）** → Phase 2：スタッフ登録 → Phase 3：シフト提出 → Phase 4：シフト表作成・確認 → Phase 5：実勤怠連携 → Phase 6：勤務体制表生成
 
 ### 設計思想
 > **「最初の設定だけで、あとは完全自動」**
@@ -129,7 +129,7 @@
    ```
    /backend
      /src
-       /phase1      (事業所登録)
+       /phase1      (法人・事業所・拠点登録 - 3つがセット)
        /phase2      (スタッフ登録)
        /phase3      (シフト提出)
        /phase4      (シフト表作成)
@@ -285,6 +285,47 @@
 
 ---
 
+---
+
+## Phase 1 詳細仕様（重要）
+
+### ★ Phase 1 は「3つの登録がセット」である
+
+Phase 1 は以下の**3つの操作が一体となった単一フェーズ**：
+
+1. **法人登録**（新規作成 or 既存から選択）
+2. **事業所登録**（新規作成 or 既存から選択） ← 選択した法人の配下に作成
+3. **拠点登録**（新規追加 or スキップで完了） ← 選択した事業所の配下に作成
+
+### 実装パターン
+
+全フェーズで以下の実装方法を統一する：
+
+1. **Supabase クライアント（supabase.js）を直接使用**
+   - axios / Express API を経由しない
+   - `supabase.from('table').select()` で直接アクセス
+
+2. **CRU D操作の統一パターン**
+   ```javascript
+   // READ
+   const { data, error } = await supabase.from('table').select('*');
+   
+   // CREATE
+   const { data, error } = await supabase.from('table').insert({...}).select();
+   
+   // UPDATE
+   const { error } = await supabase.from('table').update({...}).eq('id', id);
+   
+   // DELETE
+   const { error } = await supabase.from('table').delete().eq('id', id);
+   ```
+
+3. **フロントエンド環境変数**
+   - `VITE_SUPABASE_ANON_KEY` は `frontend/.env` に設定
+   - リポジトリに含める（公開キーなので安全）
+
+---
+
 ## 修正・アップデート履歴
 
 （このファイルは各フェーズ完了時に更新）
@@ -293,3 +334,4 @@
 |------|---------|---------|------|
 | 2026-04-15 | 仕様書 | 初版作成 | 拠点→事業所集計の確認 |
 | 2026-04-22 | Phase 4 | シフト作成・編集仕様を明確化 | シフト作成は自動生成、編集は独立 |
+| 2026-04-23 | Phase 1 | Phase 1 は「3つのセット」であることを明記 | Supabase 直接アクセス方式に統一 |
