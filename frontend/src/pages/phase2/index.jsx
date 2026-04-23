@@ -63,7 +63,7 @@ export default function Phase2() {
 
   const fetchFacilities = async (corpId) => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/phase1/corporations/${corpId}/facilities/`);
+      const response = await axios.get(`${API_BASE_URL}/phase1/corporations/${corpId}/facilities`);
       setFacilities(response.data);
       setSelectedFacility('');
       setStaffs([]);
@@ -74,7 +74,7 @@ export default function Phase2() {
 
   const fetchLocations = async (facilityId) => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/phase1/facilities/${facilityId}/locations/`);
+      const response = await axios.get(`${API_BASE_URL}/phase1/facilities${facilityId}/locations`);
       setLocations(response.data);
     } catch (error) {
       console.error('拠点取得エラー:', error);
@@ -83,7 +83,7 @@ export default function Phase2() {
 
   const fetchStaffs = async (facilityId) => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/phase2/facilities/${facilityId}/staffs`);
+      const response = await axios.get(`${API_BASE_URL}/phase2/facilities${facilityId}/staffs`);
       setStaffs(response.data);
     } catch (error) {
       console.error('スタッフ取得エラー:', error);
@@ -196,7 +196,7 @@ export default function Phase2() {
       }));
 
       const response = await axios.post(
-        `${API_BASE_URL}/phase2/facilities/${selectedFacility}/staffs`,
+        `${API_BASE_URL}/phase2/facilities${selectedFacility}/staffs`,
         {
           staff_name: formData.staff_name,
           positions: positions,

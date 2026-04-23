@@ -46,7 +46,7 @@ export default function Phase4() {
       const fetchFacilities = async () => {
         try {
           const response = await axios.get(
-            `${API_BASE_URL}/phase1/corporations/${selectedCorp}/facilities/`
+            `${API_BASE_URL}/phase1/corporations/${selectedCorp}/facilities`
           );
           setFacilities(response.data);
           setSelectedFacility('');
@@ -65,7 +65,7 @@ export default function Phase4() {
       const fetchLocations = async () => {
         try {
           const locationResponse = await axios.get(
-            `${API_BASE_URL}/phase1/facilities/${selectedFacility}/locations/`
+            `${API_BASE_URL}/phase1/facilities${selectedFacility}/locations`
           );
           setLocations(locationResponse.data);
           setShiftTable(null);

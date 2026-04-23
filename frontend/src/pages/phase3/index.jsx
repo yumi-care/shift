@@ -131,7 +131,7 @@ export default function Phase3() {
 
   const fetchFacilities = async (corpId) => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/phase1/corporations/${corpId}/facilities/`);
+      const response = await axios.get(`${API_BASE_URL}/phase1/corporations/${corpId}/facilities`);
       setFacilities(response.data);
     } catch (error) {
       console.error('事業所取得エラー:', error);
@@ -140,7 +140,7 @@ export default function Phase3() {
 
   const fetchLocations = async (facilityId) => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/phase1/facilities/${facilityId}/locations/`);
+      const response = await axios.get(`${API_BASE_URL}/phase1/facilities${facilityId}/locations`);
       setLocations(response.data);
     } catch (error) {
       console.error('拠点取得エラー:', error);
@@ -149,7 +149,7 @@ export default function Phase3() {
 
   const fetchStaffs = async (facilityId) => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/phase2/facilities/${facilityId}/staffs`);
+      const response = await axios.get(`${API_BASE_URL}/phase2/facilities${facilityId}/staffs`);
       setRegisteredStaffs(response.data);
     } catch (error) {
       console.error('スタッフ取得エラー:', error);
