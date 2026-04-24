@@ -84,9 +84,10 @@ export default function Phase1() {
     try {
       const { data, error } = await supabase.from('facilities').select('*').eq('corp_id', corpId);
       if (error) throw error;
-      setFacilities(data);
+      setFacilities(data || []);
     } catch (error) {
       console.error('事業所一覧取得エラー:', error);
+      setFacilities([]);
     }
   };
 
@@ -94,9 +95,10 @@ export default function Phase1() {
     try {
       const { data, error } = await supabase.from('locations').select('*').eq('facility_id', facilityId);
       if (error) throw error;
-      setLocations(data);
+      setLocations(data || []);
     } catch (error) {
       console.error('拠点一覧取得エラー:', error);
+      setLocations([]);
     }
   };
 
