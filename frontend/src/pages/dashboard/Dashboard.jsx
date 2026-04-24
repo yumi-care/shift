@@ -580,21 +580,28 @@ export default function Dashboard() {
                                 return;
                               }
                               try {
-                                const response = await axios.post(`${API_BASE_URL}/dashboard/submissions/add`, {
-                                  facility_id: selectedFacility,
-                                  staff_id: showDetails.staff_id,
-                                  date: editingNewDate,
-                                  location_id: parseInt(editingLocation),
-                                  year: selectedYear,
-                                  month: selectedMonth
-                                });
+                                const { data: newSubmission, error } = await supabase
+                                  .from('submissions')
+                                  .insert({
+                                    facility_id: parseInt(selectedFacility),
+                                    staff_id: showDetails.staff_id,
+                                    date: editingNewDate,
+                                    location_id: parseInt(editingLocation),
+                                    year: parseInt(selectedYear),
+                                    month: parseInt(selectedMonth),
+                                    type: 'manual'
+                                  })
+                                  .select();
+
+                                if (error) throw error;
 
                                 // 新しい申告をshowDetailsに追加
+                                const submission = newSubmission[0];
                                 const newDetail = {
-                                  submission_id: response.data.submission.submission_id,
+                                  submission_id: submission.submission_id,
                                   date: editingNewDate,
                                   location_id: parseInt(editingLocation),
-                                  location_name: response.data.submission.location_name,
+                                  location_name: submission.location_name || '',
                                   type: 'manual'
                                 };
 
@@ -695,7 +702,7 @@ export default function Dashboard() {
                                         try {
                                           const submissionIds = staff.submission_details?.map(d => d.submission_id) || [];
                                           for (const id of submissionIds) {
-                                            await axios.delete(`${API_BASE_URL}/dashboard/submissions/${id}`);
+                                            await supabase.from('submissions').delete().eq('submission_id', id);
                                           }
                                           // 画面をリフレッシュ
                                           window.location.reload();
