@@ -197,7 +197,6 @@ export default function Phase1() {
       });
       setFormData({ ...formData, corp_name: '' });
       setShowConfirm(false);
-      await fetchFacilities(newCorp.corp_id);
       setStep('facility');
     } catch (error) {
       console.error('法人作成エラー:', error);
@@ -251,7 +250,6 @@ export default function Phase1() {
       });
       setFormData({ ...formData, facility_name: '', department: '', service_type: '' });
       setShowConfirm(false);
-      await fetchLocations(newFacility.facility_id);
       setStep('location');
     } catch (error) {
       console.error('事業所作成エラー:', error);
