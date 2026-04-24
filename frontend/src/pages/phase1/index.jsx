@@ -183,14 +183,21 @@ export default function Phase1() {
 
   const handleConfirmCreate = async () => {
     try {
-      const { error } = await supabase.from('corporations').insert({
+      const { data, error } = await supabase.from('corporations').insert({
         corp_name: confirmData.data.corp_name
-      });
+      }).select();
       if (error) throw error;
+
+      const newCorp = data[0];
       alert('法人を登録しました');
+      setSelected({
+        ...selected,
+        corp_id: newCorp.corp_id,
+        corp_name: newCorp.corp_name
+      });
       setFormData({ ...formData, corp_name: '' });
       setShowConfirm(false);
-      await fetchCorporations();
+      await fetchFacilities(newCorp.corp_id);
       setStep('facility');
     } catch (error) {
       console.error('法人作成エラー:', error);
@@ -229,15 +236,22 @@ export default function Phase1() {
 
   const handleConfirmCreateFacility = async () => {
     try {
-      const { error } = await supabase.from('facilities').insert({
+      const { data, error } = await supabase.from('facilities').insert({
         corp_id: selected.corp_id,
         facility_name: confirmData.data.facility_name
-      });
+      }).select();
       if (error) throw error;
+
+      const newFacility = data[0];
       alert('事業所を登録しました');
+      setSelected({
+        ...selected,
+        facility_id: newFacility.facility_id,
+        facility_name: newFacility.facility_name
+      });
       setFormData({ ...formData, facility_name: '', department: '', service_type: '' });
       setShowConfirm(false);
-      await fetchFacilities(selected.corp_id);
+      await fetchLocations(newFacility.facility_id);
       setStep('location');
     } catch (error) {
       console.error('事業所作成エラー:', error);
