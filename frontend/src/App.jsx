@@ -1,27 +1,18 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import Login from './pages/login/Login';
-import Dashboard from './pages/dashboard/Dashboard';
-import Phase1 from './pages/phase1/index';
-import Phase2 from './pages/phase2/index';
-import Phase3 from './pages/phase3/index';
-import Phase4 from './pages/phase4/index';
-import Settings from './pages/settings/Settings';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import Header from './components/Header';
 import './App.css';
 
 export default function App() {
   return (
     <BrowserRouter>
+      <Header />
       <Routes>
-        <Route path="/login" element={<Login />} />
-        <Route path="/" element={<Dashboard />} />
-        <Route path="/phase1" element={<Phase1 />} />
-        <Route path="/phase2" element={<Phase2 />} />
-        <Route path="/phase3" element={<Phase3 />} />
-        <Route path="/phase4" element={<Phase4 />} />
-        <Route path="/phase6" element={<div style={{ padding: '20px', textAlign: 'center' }}>Phase 6: 勤務体制表 - 準備中</div>} />
-        <Route path="/settings" element={<Settings />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="/" element={<div style={{ padding: '20px', textAlign: 'center' }}>Shift System - Rebuilding with Supabase...</div>} />
+        <Route path="/phase1" element={<div style={{ padding: '20px', textAlign: 'center' }}>Phase 1 - Coming Soon</div>} />
+        <Route path="/phase2" element={<div style={{ padding: '20px', textAlign: 'center' }}>Phase 2 - Coming Soon</div>} />
+        <Route path="/phase3" element={<div style={{ padding: '20px', textAlign: 'center' }}>Phase 3 - Coming Soon</div>} />
+        <Route path="/phase4" element={<div style={{ padding: '20px', textAlign: 'center' }}>Phase 4 - Coming Soon</div>} />
       </Routes>
     </BrowserRouter>
   );
