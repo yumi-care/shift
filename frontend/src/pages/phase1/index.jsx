@@ -248,7 +248,6 @@ export default function Phase1() {
       alert('事業所を登録しました');
       setFormData({ ...formData, facility_name: '', department: '', service_type: '' });
       setShowConfirm(false);
-      await fetchFacilities(selected.corp_id);
       setStep('location');
     } catch (error) {
       console.error('事業所作成エラー:', error);
