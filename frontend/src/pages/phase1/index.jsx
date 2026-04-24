@@ -235,21 +235,18 @@ export default function Phase1() {
 
   const handleConfirmCreateFacility = async () => {
     try {
-      const { data, error } = await supabase.from('facilities').insert({
+      const { error } = await supabase.from('facilities').insert({
         corp_id: selected.corp_id,
-        facility_name: confirmData.data.facility_name
-      }).select();
+        facility_name: confirmData.data.facility_name,
+        department: confirmData.data.department,
+        service_type: confirmData.data.service_type
+      });
       if (error) throw error;
 
-      const newFacility = data[0];
       alert('事業所を登録しました');
-      setSelected({
-        ...selected,
-        facility_id: newFacility.facility_id,
-        facility_name: newFacility.facility_name
-      });
       setFormData({ ...formData, facility_name: '', department: '', service_type: '' });
       setShowConfirm(false);
+      await fetchFacilities(selected.corp_id);
       setStep('location');
     } catch (error) {
       console.error('事業所作成エラー:', error);
