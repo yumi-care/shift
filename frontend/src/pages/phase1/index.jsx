@@ -64,12 +64,6 @@ export default function Phase1() {
   const [confirmData, setConfirmData] = useState(null);
 
   // ========== API 呼び出し ==========
-  useEffect(() => {
-    if (step === 'corporation') {
-      fetchCorporations();
-    }
-  }, [step]);
-
   const fetchCorporations = async () => {
     try {
       const { data, error } = await supabase.from('corporations').select('*');
