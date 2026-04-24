@@ -158,6 +158,7 @@ export default function Phase1() {
       corp_id: corpId,
       corp_name: corp?.corp_name || ''
     });
+    fetchFacilities(corpId);
     setStep('facility');
   };
 
@@ -184,6 +185,7 @@ export default function Phase1() {
       if (error) throw error;
 
       const newCorp = data[0];
+      setCorporations([...corporations, newCorp]);
       alert('法人を登録しました');
       setSelected({
         ...selected,
@@ -206,11 +208,10 @@ export default function Phase1() {
       facility_id: facilityId,
       facility_name: facility?.facility_name || ''
     });
-    fetchLocations(facilityId);
     setStep('location');
   };
 
-  const handleCreateFacility = async () => {
+  const handleCreateFacility = () => {
     if (!formData.facility_name || !formData.department || !formData.service_type) {
       alert('事業所名、部門、サービス種別を入力してください');
       return;
@@ -230,15 +231,22 @@ export default function Phase1() {
 
   const handleConfirmCreateFacility = async () => {
     try {
-      const { error } = await supabase.from('facilities').insert({
+      const { data, error } = await supabase.from('facilities').insert({
         corp_id: selected.corp_id,
         facility_name: confirmData.data.facility_name,
         department: confirmData.data.department,
         service_type: confirmData.data.service_type
-      });
+      }).select();
       if (error) throw error;
 
+      const newFacility = data[0];
+      setFacilities([...facilities, newFacility]);
       alert('事業所を登録しました');
+      setSelected({
+        ...selected,
+        facility_id: newFacility.facility_id,
+        facility_name: newFacility.facility_name
+      });
       setFormData({ ...formData, facility_name: '', department: '', service_type: '' });
       setShowConfirm(false);
       setStep('location');
@@ -257,15 +265,17 @@ export default function Phase1() {
 
   const handleConfirmCreateLocation = async () => {
     try {
-      const { error } = await supabase.from('locations').insert({
+      const { data, error } = await supabase.from('locations').insert({
         facility_id: selected.facility_id,
         location_name: confirmData.data.location_name
-      });
+      }).select();
       if (error) throw error;
+
+      const newLocation = data[0];
+      setLocations([...locations, newLocation]);
       alert('拠点を登録しました');
       setFormData({ ...formData, location_name: '' });
       setShowConfirm(false);
-      await fetchLocations(selected.facility_id);
     } catch (error) {
       console.error('拠点作成エラー:', error);
       alert('拠点の作成に失敗しました');
