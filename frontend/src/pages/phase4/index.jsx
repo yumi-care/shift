@@ -1,10 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import { supabase } from '../../supabase';
 import Header from '../../components/Header';
 import './Phase4.css';
-
-const API_BASE_URL = '/api';
 
 export default function Phase4() {
   const navigate = useNavigate();
@@ -29,11 +27,13 @@ export default function Phase4() {
   useEffect(() => {
     const fetchCorporations = async () => {
       try {
-        const response = await axios.get(`${API_BASE_URL}/phase1/corporations/`);
-        setCorporations(response.data);
+        const { data, error } = await supabase.from('corporations').select('*');
+        if (error) throw error;
+        setCorporations(data || []);
         setLoading(false);
       } catch (error) {
         console.error('法人取得エラー:', error);
+        setCorporations([]);
         setLoading(false);
       }
     };
@@ -45,14 +45,14 @@ export default function Phase4() {
     if (selectedCorp) {
       const fetchFacilities = async () => {
         try {
-          const response = await axios.get(
-            `${API_BASE_URL}/phase1/corporations/${selectedCorp}/facilities`
-          );
-          setFacilities(response.data);
+          const { data, error } = await supabase.from('facilities').select('*').eq('corp_id', parseInt(selectedCorp));
+          if (error) throw error;
+          setFacilities(data || []);
           setSelectedFacility('');
           setShiftTable(null);
         } catch (error) {
           console.error('事業所取得エラー:', error);
+          setFacilities([]);
         }
       };
 
@@ -64,14 +64,14 @@ export default function Phase4() {
     if (selectedFacility) {
       const fetchLocations = async () => {
         try {
-          const locationResponse = await axios.get(
-            `${API_BASE_URL}/phase1/facilities${selectedFacility}/locations`
-          );
-          setLocations(locationResponse.data);
+          const { data, error } = await supabase.from('locations').select('*').eq('facility_id', parseInt(selectedFacility));
+          if (error) throw error;
+          setLocations(data || []);
           setShiftTable(null);
           setShiftEdits({});
         } catch (error) {
           console.error('拠点取得エラー:', error);
+          setLocations([]);
         }
       };
 
@@ -84,46 +84,40 @@ export default function Phase4() {
       const loadSavedShift = async () => {
         try {
           // 保存済みシフトを確認
-          const shiftResponse = await axios.get(`${API_BASE_URL}/phase4/shifts/get`, {
-            params: {
-              facility_id: selectedFacility,
-              year: selectedYear,
-              month: selectedMonth
-            }
-          });
+          const { data: shiftData, error: shiftError } = await supabase
+            .from('shifts')
+            .select('*')
+            .eq('facility_id', parseInt(selectedFacility))
+            .eq('year', parseInt(selectedYear))
+            .eq('month', parseInt(selectedMonth))
+            .single();
 
           // 保存済みシフトが見つかった場合、シフト表を生成して表示
-          if (shiftResponse.data.edits) {
-            const dashboardResponse = await axios.get(
-              `${API_BASE_URL}/dashboard/summary`,
-              {
-                params: {
-                  facility_id: selectedFacility,
-                  year: selectedYear,
-                  month: selectedMonth
-                }
-              }
-            );
+          if (shiftData && shiftData.edits) {
+            // スタッフデータを取得
+            const { data: staffsData, error: staffsError } = await supabase
+              .from('staffs')
+              .select('*, submissions(*)').eq('facility_id', parseInt(selectedFacility));
 
-            generateShiftTable(dashboardResponse.data.staffs || [], selectedYear, parseInt(selectedMonth));
-            setShiftEdits(shiftResponse.data.edits);
+            if (!staffsError && staffsData) {
+              generateShiftTable(staffsData || [], selectedYear, parseInt(selectedMonth));
+              setShiftEdits(shiftData.edits);
 
-            // 保存済み edits を反映してエラーを再判定
-            setTimeout(() => {
-              setShiftTable(prev => {
-                if (prev) {
-                  const newErrors = recalculateErrors(prev, shiftResponse.data.edits);
-                  return { ...prev, errors: newErrors };
-                }
-                return prev;
-              });
-            }, 0);
+              // 保存済み edits を反映してエラーを再判定
+              setTimeout(() => {
+                setShiftTable(prev => {
+                  if (prev) {
+                    const newErrors = recalculateErrors(prev, shiftData.edits);
+                    return { ...prev, errors: newErrors };
+                  }
+                  return prev;
+                });
+              }, 0);
+            }
           }
         } catch (error) {
           // 保存済みシフトがない場合は何もしない
-          if (error.response?.status !== 404) {
-            console.error('保存済みシフト取得エラー:', error);
-          }
+          console.error('保存済みシフト取得エラー:', error);
         }
       };
 
@@ -138,18 +132,13 @@ export default function Phase4() {
     }
 
     try {
-      const dashboardResponse = await axios.get(
-        `${API_BASE_URL}/dashboard/summary`,
-        {
-          params: {
-            facility_id: selectedFacility,
-            year: selectedYear,
-            month: selectedMonth
-          }
-        }
-      );
+      const { data: staffsData, error } = await supabase
+        .from('staffs')
+        .select('*, submissions(*)')
+        .eq('facility_id', parseInt(selectedFacility));
 
-      generateShiftTable(dashboardResponse.data.staffs || [], selectedYear, parseInt(selectedMonth));
+      if (error) throw error;
+      generateShiftTable(staffsData || [], selectedYear, parseInt(selectedMonth));
       setShiftEdits({});
     } catch (error) {
       console.error('シフト作成エラー:', error);
@@ -275,12 +264,31 @@ export default function Phase4() {
     setShowConfirmDialog(false);
 
     try {
-      await axios.post(`${API_BASE_URL}/phase4/shifts/save`, {
-        facility_id: selectedFacility,
-        year: selectedYear,
-        month: selectedMonth,
-        edits: shiftEdits
-      });
+      const { data: existingShift, error: checkError } = await supabase
+        .from('shifts')
+        .select('*')
+        .eq('facility_id', parseInt(selectedFacility))
+        .eq('year', parseInt(selectedYear))
+        .eq('month', parseInt(selectedMonth))
+        .single();
+
+      if (existingShift) {
+        await supabase
+          .from('shifts')
+          .update({ edits: shiftEdits })
+          .eq('facility_id', parseInt(selectedFacility))
+          .eq('year', parseInt(selectedYear))
+          .eq('month', parseInt(selectedMonth));
+      } else {
+        await supabase
+          .from('shifts')
+          .insert({
+            facility_id: parseInt(selectedFacility),
+            year: parseInt(selectedYear),
+            month: parseInt(selectedMonth),
+            edits: shiftEdits
+          });
+      }
 
       // 保存後、編集値をシフト表に反映させる
       const updatedShiftTable = {

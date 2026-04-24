@@ -1,11 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import { supabase } from '../../supabase';
 import { MdArrowForward, MdClose } from 'react-icons/md';
 import Header from '../../components/Header';
 import './Dashboard.css';
-
-const API_BASE_URL = '/api';
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -27,11 +25,13 @@ export default function Dashboard() {
   useEffect(() => {
     const fetchCorporations = async () => {
       try {
-        const response = await axios.get(`${API_BASE_URL}/phase1/corporations/`);
-        setCorporations(response.data);
+        const { data, error } = await supabase.from('corporations').select('*');
+        if (error) throw error;
+        setCorporations(data || []);
         setLoading(false);
       } catch (error) {
         console.error('法人取得エラー:', error);
+        setCorporations([]);
         setLoading(false);
       }
     };
@@ -44,14 +44,14 @@ export default function Dashboard() {
     if (selectedCorp) {
       const fetchFacilities = async () => {
         try {
-          const response = await axios.get(
-            `${API_BASE_URL}/phase1/corporations/${selectedCorp}/facilities/`
-          );
-          setFacilities(response.data);
+          const { data, error } = await supabase.from('facilities').select('*').eq('corp_id', parseInt(selectedCorp));
+          if (error) throw error;
+          setFacilities(data || []);
           setSelectedFacility('');
           setShiftData(null);
         } catch (error) {
           console.error('事業所取得エラー:', error);
+          setFacilities([]);
         }
       };
 
@@ -68,19 +68,24 @@ export default function Dashboard() {
     }
   }, [selectedFacility]);
 
-  // 対象月が選択されたら、Dashboard API からスタッフと申告状況を取得
+  // 対象月が選択されたら、スタッフと申告状況を取得
   useEffect(() => {
     if (selectedFacility && selectedYear && selectedMonth) {
       const fetchDashboardData = async () => {
         try {
-          const response = await axios.get(`${API_BASE_URL}/dashboard/summary`, {
-            params: {
-              facility_id: selectedFacility,
-              year: selectedYear,
-              month: selectedMonth
-            }
-          });
-          setShiftData({ staffs: response.data.staffs });
+          const { data: staffs, error: staffError } = await supabase.from('staffs').select('*').eq('facility_id', parseInt(selectedFacility));
+          if (staffError) throw staffError;
+
+          const enrichedStaffs = await Promise.all((staffs || []).map(async (staff) => {
+            const { data: submissions, error: subError } = await supabase.from('submissions')
+              .select('*')
+              .eq('staff_id', staff.staff_id)
+              .eq('facility_id', parseInt(selectedFacility));
+            if (subError) throw subError;
+            return { ...staff, submission_details: submissions || [] };
+          }));
+
+          setShiftData({ staffs: enrichedStaffs });
         } catch (error) {
           console.error('ダッシュボードデータ取得エラー:', error);
           setShiftData({ staffs: [] });
@@ -96,10 +101,9 @@ export default function Dashboard() {
     if (showDetails && selectedFacility) {
       const fetchLocations = async () => {
         try {
-          const response = await axios.get(
-            `${API_BASE_URL}/phase1/facilities/${selectedFacility}/locations/`
-          );
-          setLocations(response.data);
+          const { data, error } = await supabase.from('locations').select('*').eq('facility_id', parseInt(selectedFacility));
+          if (error) throw error;
+          setLocations(data || []);
         } catch (error) {
           console.error('拠点取得エラー:', error);
           setLocations([]);
@@ -110,22 +114,27 @@ export default function Dashboard() {
   }, [showDetails, selectedFacility]);
 
 
-  // localStorage を更新した後、ダッシュボードデータを再取得
+  // ダッシュボードデータを再取得
   const refetchDashboardData = async () => {
     if (selectedFacility && selectedYear && selectedMonth) {
       try {
-        const response = await axios.get(`${API_BASE_URL}/dashboard/summary`, {
-          params: {
-            facility_id: selectedFacility,
-            year: selectedYear,
-            month: selectedMonth
-          }
-        });
-        setShiftData({ staffs: response.data.staffs });
+        const { data: staffs, error: staffError } = await supabase.from('staffs').select('*').eq('facility_id', parseInt(selectedFacility));
+        if (staffError) throw staffError;
+
+        const enrichedStaffs = await Promise.all((staffs || []).map(async (staff) => {
+          const { data: submissions, error: subError } = await supabase.from('submissions')
+            .select('*')
+            .eq('staff_id', staff.staff_id)
+            .eq('facility_id', parseInt(selectedFacility));
+          if (subError) throw subError;
+          return { ...staff, submission_details: submissions || [] };
+        }));
+
+        setShiftData({ staffs: enrichedStaffs });
 
         // モーダルが開いていれば、該当スタッフの新しいデータで更新
         if (showDetails) {
-          const updatedStaff = response.data.staffs.find(s => s.staff_id === showDetails.staff_id);
+          const updatedStaff = enrichedStaffs.find(s => s.staff_id === showDetails.staff_id);
           if (updatedStaff) {
             setShowDetails(updatedStaff);
           }
@@ -139,7 +148,8 @@ export default function Dashboard() {
   // 申告データを削除
   const handleDeleteSubmission = async (submissionId) => {
     try {
-      await axios.delete(`${API_BASE_URL}/dashboard/submissions/${submissionId}`);
+      const { error } = await supabase.from('submissions').delete().eq('submission_id', submissionId);
+      if (error) throw error;
       refetchDashboardData();
     } catch (error) {
       console.error('申告削除エラー:', error);
@@ -150,10 +160,12 @@ export default function Dashboard() {
   // 申告データの日付と拠点を更新
   const handleUpdateDateAndLocation = async (submissionId, newDate, newLocationId) => {
     try {
-      await axios.put(`${API_BASE_URL}/dashboard/submissions/${submissionId}`, {
+      const { error } = await supabase.from('submissions').update({
         date: newDate,
-        location_id: newLocationId
-      });
+        location_id: parseInt(newLocationId)
+      }).eq('submission_id', submissionId);
+
+      if (error) throw error;
 
       setEditingDate(null);
       setEditingNewDate(null);
@@ -161,8 +173,7 @@ export default function Dashboard() {
       refetchDashboardData();
     } catch (error) {
       console.error('申告更新エラー:', error);
-      const errorMessage = error.response?.data?.error || '申告更新に失敗しました';
-      alert(errorMessage);
+      alert('申告更新に失敗しました');
     }
   };
 

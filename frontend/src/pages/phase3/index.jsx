@@ -1,11 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import axios from 'axios';
+import { supabase } from '../../supabase';
 import { MdAssignment, MdArrowForward, MdArrowBack } from 'react-icons/md';
 import Header from '../../components/Header';
 import './Phase3.css';
-
-const API_BASE_URL = '/api';
 
 export default function Phase3() {
   const navigate = useNavigate();
@@ -111,12 +109,13 @@ export default function Phase3() {
   // ========== API 呼び出し ==========
   const fetchCorporations = async () => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/phase1/corporations/`);
-      setCorporations(response.data);
+      const { data, error } = await supabase.from('corporations').select('*');
+      if (error) throw error;
+      setCorporations(data || []);
 
       const corpId = searchParams.get('corp_id');
       if (corpId) {
-        const corp = response.data.find(c => c.corp_id === parseInt(corpId));
+        const corp = (data || []).find(c => c.corp_id === parseInt(corpId));
         if (corp) {
           await fetchFacilities(corpId);
         }
@@ -125,32 +124,38 @@ export default function Phase3() {
       setLoading(false);
     } catch (error) {
       console.error('法人取得エラー:', error);
+      setCorporations([]);
       setLoading(false);
     }
   };
 
   const fetchFacilities = async (corpId) => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/phase1/corporations/${corpId}/facilities`);
-      setFacilities(response.data);
+      const { data, error } = await supabase.from('facilities').select('*').eq('corp_id', parseInt(corpId));
+      if (error) throw error;
+      setFacilities(data || []);
     } catch (error) {
       console.error('事業所取得エラー:', error);
+      setFacilities([]);
     }
   };
 
   const fetchLocations = async (facilityId) => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/phase1/facilities${facilityId}/locations`);
-      setLocations(response.data);
+      const { data, error } = await supabase.from('locations').select('*').eq('facility_id', parseInt(facilityId));
+      if (error) throw error;
+      setLocations(data || []);
     } catch (error) {
       console.error('拠点取得エラー:', error);
+      setLocations([]);
     }
   };
 
   const fetchStaffs = async (facilityId) => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/phase2/facilities${facilityId}/staffs`);
-      setRegisteredStaffs(response.data);
+      const { data, error } = await supabase.from('staffs').select('*').eq('facility_id', parseInt(facilityId));
+      if (error) throw error;
+      setRegisteredStaffs(data || []);
     } catch (error) {
       console.error('スタッフ取得エラー:', error);
       setRegisteredStaffs([]);
@@ -297,13 +302,16 @@ export default function Phase3() {
     if (autoDatesList.length === 0) return;
 
     try {
-      // API で自動申告
-      await axios.post(`${API_BASE_URL}/phase3/shift-submissions/auto`, {
+      const submissions = autoDatesList.map(dateStr => ({
         staff_id: parseInt(staffId),
         facility_id: parseInt(selectedFacility),
-        year: targetYear,
-        month: targetMonth
-      });
+        date: dateStr,
+        type: 'auto',
+        submitted_at: new Date().toISOString()
+      }));
+
+      const { error } = await supabase.from('submissions').insert(submissions);
+      if (error) throw error;
     } catch (error) {
       console.error('自動申告エラー:', error);
       alert('申告に失敗しました');
@@ -342,17 +350,17 @@ export default function Phase3() {
     if (!canSubmit()) return;
 
     try {
-      // API に手動申告を送信
       const submissions = Object.entries(selectedDates).map(([dateStr, locData]) => ({
-        date: dateStr,
-        location_id: parseInt(locData.location_id)
-      }));
-
-      await axios.post(`${API_BASE_URL}/phase3/shift-submissions/manual`, {
         staff_id: parseInt(selectedStaffId),
         facility_id: parseInt(selectedFacility),
-        submissions: submissions
-      });
+        date: dateStr,
+        location_id: parseInt(locData.location_id),
+        type: 'manual',
+        submitted_at: new Date().toISOString()
+      }));
+
+      const { error } = await supabase.from('submissions').insert(submissions);
+      if (error) throw error;
 
       setShowConfirm(false);
       setSubmissionComplete(true);
