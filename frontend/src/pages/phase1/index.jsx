@@ -158,7 +158,6 @@ export default function Phase1() {
       corp_id: corpId,
       corp_name: corp?.corp_name || ''
     });
-    fetchFacilities(corpId);
     setStep('facility');
   };
 
