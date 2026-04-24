@@ -168,6 +168,36 @@
    - マルチテナント分離は explicit filter で実装（whereクエリに tenant_id を含める）
    - 削除系（delete, drop, truncate）は admin権限で管理
 
+### ★ Supabase 統一ルール（2026-04-24 確定）
+
+**本プロジェクトは自前バックエンドサーバー（Express/API方式）を廃止し、Supabaseへの直接接続に完全移行しました。以下を徹底してください。**
+
+1. **アーキテクチャの統一（絶対）**
+   - APIサーバー（`/api/...`）との通信は**一切禁止**
+   - すべてのデータ取得・更新は `@supabase/supabase-js` を介して直接 Supabase に対して行う
+   - 通信ライブラリは `supabase` クライアント**のみ**使用。`axios` は禁止
+
+2. **古い設計図・コードの削除**
+   - `server.js`: すべてのAPI定義・ルートをコメントアウトまたは削除
+   - `backend/` フォルダ: `/api` エンドポイント定義は全削除。不要コード完全除去
+   - `.md` 設計図（`SPECIFICATIONS.md`, `API_FLOWS.md` 等）: `/api/...` 記述をすべて削除。`supabase.from('テーブル名').select/insert/update/delete()` に書き換える
+   - `package.json` の `axios` 記述: 削除を検討（使用個所がなければ削除）
+
+3. **コード生成時の必須チェック**
+   - `/api` というパスが含まれていないか **必ずダブルチェック**
+   - `axios` のインポートや呼び出しが含まれていないか確認
+   - Supabase のテーブル操作（`select`, `insert`, `update`, `delete`, `eq`, `order` 等）のみを使用
+
+4. **エラーハンドリング**
+   - AxiosError が出ないようにする
+   - Supabase のエラーオブジェクト（`{ data, error }`）のみを使用
+   - エラー処理: `if (error) throw error;` の形式に統一
+
+5. **今後の実装原則**
+   - フロントエンドからSupabaseを**直接操作**するコードのみを出力
+   - 「自前サーバーがある」という前提を**完全に捨てる**
+   - Phase別フロントエンド：各ページで `supabase.from('テーブル名')` のみ使用
+
 ### 設定管理（settings.json）
 
 各フェーズの設定は以下に記録し、上書きされないようにする：
